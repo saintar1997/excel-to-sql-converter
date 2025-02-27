@@ -1,4 +1,12 @@
-<!DOCTYPE html>
+// Run filtering on component mount and when template is loaded
+            React.useEffect(() => {
+                // Wait a short moment to ensure data is fully loaded
+                const timer = setTimeout(() => {
+                    filterColumnsWithData();
+                }, 300);
+                
+                return () => clearTimeout(timer);
+            }, []);<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -961,40 +969,57 @@
                 setColumnTypes(savedTypes);
             }, [sheetData]);
             
-            // Filter columns to only show those with data based on Data Preview
-            React.useEffect(() => {
-                if (sheetData.data && sheetData.data.length > 0) {
-                    // Get all header indexes
-                    const headers = [...sheetData.headers];
+            // Filter columns to only show those with data
+            const filterColumnsWithData = () => {
+                if (!sheetData.data || sheetData.data.length === 0) return;
+                
+                // Get all header indexes
+                const headers = [...sheetData.headers];
+                
+                // Track which columns have data
+                const columnsWithData = {};
+                
+                // Check all rows for data (up to a reasonable limit)
+                const rowsToCheck = Math.min(10, sheetData.data.length);
+                console.log(`Checking ${rowsToCheck} rows for data in columns`);
+                
+                for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
+                    const row = sheetData.data[rowIdx];
+                    if (!row) continue;
                     
-                    // Track which columns have data
-                    const columnsWithData = {};
-                    
-                    // Check the exact rows shown in Data Preview (first 5 rows or fewer)
-                    const previewRows = sheetData.data.slice(0, 5);
-                    
-                    previewRows.forEach(row => {
-                        if (!row) return;
-                        
-                        headers.forEach((header, colIdx) => {
-                            const cellValue = row[colIdx];
-                            if (cellValue !== undefined && cellValue !== null && String(cellValue).trim() !== '') {
-                                columnsWithData[header] = true;
-                            }
-                        });
+                    headers.forEach((header, colIdx) => {
+                        const cellValue = row[colIdx];
+                        if (cellValue !== undefined && cellValue !== null && cellValue !== '') {
+                            columnsWithData[header] = true;
+                        }
                     });
-                    
-                    // Update available columns list to only include those with data in the preview
-                    // but preserve the selection status (selected stays selected)
-                    const selectedSet = new Set(selectedColumns);
-                    
-                    // Columns that have data in the preview and aren't already selected
-                    const availableCols = headers.filter(col => 
-                        !selectedSet.has(col) && columnsWithData[col]
-                    );
-                    
-                    setAvailableColumns(availableCols);
                 }
+                
+                console.log("Columns with data:", Object.keys(columnsWithData).length, "out of", headers.length);
+                
+                // Log which columns have data and which don't
+                headers.forEach(header => {
+                    if (columnsWithData[header]) {
+                        console.log(`Column "${header}" has data`);
+                    } else {
+                        console.log(`Column "${header}" has NO data`);
+                    }
+                });
+                
+                // Update available columns list to only include those with data
+                // but preserve the selection status (selected stays selected)
+                const selectedSet = new Set(selectedColumns);
+                const availableCols = headers.filter(col => 
+                    !selectedSet.has(col) && columnsWithData[col]
+                );
+                
+                console.log("Setting available columns:", availableCols.length);
+                setAvailableColumns(availableCols);
+            };
+            
+            // Run filtering when sheet data or selections change
+            React.useEffect(() => {
+                filterColumnsWithData();
             }, [sheetData.data, selectedColumns]);
             
             const handleHeaderRowChange = () => {
@@ -1003,7 +1028,15 @@
                     return;
                 }
                 
+                // Clear the available columns before changing header row
+                setAvailableColumns([]);
+                
                 onHeaderRowChange(headerRow);
+                
+                // After a moment, re-filter columns with data after header row changes have been applied
+                setTimeout(() => {
+                    filterColumnsWithData();
+                }, 800);
             };
             
             const moveToSelected = (column) => {
@@ -1382,7 +1415,7 @@
                     </div>
                     
                     {/* Template selection modal */}
-                    {showTemplates && (
+                                                    {showTemplates && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                             <div className="bg-white rounded-lg shadow-lg w-11/12 max-w-4xl max-h-screen flex flex-col">
                                 <div className="flex justify-between items-center border-b p-4">
@@ -1461,6 +1494,15 @@
                                                                             onClick={() => {
                                                                                 onLoadTemplate(templateName, templateSheetName);
                                                                                 setShowTemplates(false);
+                                                                                // Clear available columns to force a refresh
+                                                                                setAvailableColumns([]);
+                                                                                // Explicitly set local state to match template values
+                                                                                setTableName(template.tableName || '');
+                                                                                setHeaderRow(template.headerRow || 1);
+                                                                                // Schedule a re-filtering after template is applied
+                                                                                setTimeout(() => {
+                                                                                    filterColumnsWithData();
+                                                                                }, 800);
                                                                             }}
                                                                         >
                                                                             Apply
