@@ -196,7 +196,7 @@
                 }
             };
             
-            const changeHeaderRow = (sheetName, newHeaderRow) => {
+            const changeHeaderRow = (sheetName, newHeaderRow, preserveColumns = false, columnsToPreserve = null, typesToPreserve = null) => {
                 setIsLoading(true);
                 
                 // Re-read the Excel file with the new header row
@@ -214,6 +214,22 @@
                         const headers = json[headerRowIndex];
                         const rows = json.slice(headerRowIndex + 1);
                         
+                        // Determine whether to keep or reset columns
+                        let selectedColumns = [];
+                        let columnTypes = {};
+                        
+                        if (preserveColumns && columnsToPreserve && typesToPreserve) {
+                            // Check if preserved columns still exist in the new headers
+                            selectedColumns = columnsToPreserve.filter(col => headers.includes(col));
+                            
+                            // Only keep types for columns that still exist
+                            Object.keys(typesToPreserve).forEach(col => {
+                                if (headers.includes(col)) {
+                                    columnTypes[col] = typesToPreserve[col];
+                                }
+                            });
+                        }
+                        
                         // Create updated sheet data
                         const updatedSheetsData = {
                             ...sheetsData,
@@ -223,8 +239,8 @@
                                 data: rows,
                                 rowCount: rows.length,
                                 headerRow: newHeaderRow,
-                                selectedColumns: [], // Reset selected columns
-                                columnTypes: {}, // Reset column types
+                                selectedColumns: selectedColumns,
+                                columnTypes: columnTypes,
                             }
                         };
                         
@@ -416,23 +432,44 @@
                 
                 const templateData = templates[templateName][sheetName];
                 
-                // Update sheet data with template
-                const updatedSheetData = {
-                    ...sheetsData[sheetName],
-                    tableName: templateData.tableName,
-                    columnTypes: { ...templateData.columnTypes },
-                    selectedColumns: [...templateData.selectedColumns]
-                };
+                // Get template values
+                const templateTableName = templateData.tableName || '';
+                const templateColumnTypes = templateData.columnTypes || {};
+                const templateSelectedColumns = templateData.selectedColumns || [];
+                const templateHeaderRow = templateData.headerRow || 1;
                 
                 // If header row is different or specified in template, reload the data
-                const templateHeaderRow = templateData.headerRow || 1;
                 if (templateHeaderRow !== sheetsData[sheetName].headerRow) {
-                    changeHeaderRow(sheetName, templateHeaderRow);
+                    // Change header row but preserve columns and types from template
+                    changeHeaderRow(
+                        sheetName, 
+                        templateHeaderRow, 
+                        true,
+                        templateSelectedColumns,
+                        templateColumnTypes
+                    );
+                    
+                    // Since changeHeaderRow is async, we need to update the table name separately
+                    // after a slight delay to ensure the sheet data is updated first
+                    setTimeout(() => {
+                        setSheetsData(prevData => ({
+                            ...prevData,
+                            [sheetName]: {
+                                ...prevData[sheetName],
+                                tableName: templateTableName
+                            }
+                        }));
+                    }, 500);
                 } else {
                     // Just update the sheet data
                     setSheetsData({
                         ...sheetsData,
-                        [sheetName]: updatedSheetData
+                        [sheetName]: {
+                            ...sheetsData[sheetName],
+                            tableName: templateTableName,
+                            columnTypes: { ...templateColumnTypes },
+                            selectedColumns: [...templateSelectedColumns]
+                        }
                     });
                 }
                 
@@ -523,7 +560,7 @@
                                 setCurrentView('main');
                             }}
                             onCancel={() => setCurrentView('main')}
-                            onHeaderRowChange={(newHeaderRow) => changeHeaderRow(selectedSheetName, newHeaderRow)}
+                            onHeaderRowChange={(newHeaderRow) => changeHeaderRow(selectedSheetName, newHeaderRow, false)}
                             templates={templates}
                             onSaveTemplate={(templateName) => saveTemplate(selectedSheetName, templateName)}
                             onLoadTemplate={(templateName, sheetName) => loadTemplate(templateName, sheetName)}
