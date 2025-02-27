@@ -89,6 +89,8 @@
             const [currentView, setCurrentView] = React.useState('main'); // main, configureSheet, manageTemplates
             const [isLoading, setIsLoading] = React.useState(false);
             const [sqlPreview, setSqlPreview] = React.useState('');
+            const [showFullDataPreview, setShowFullDataPreview] = React.useState(false);
+            const [previewSheetName, setPreviewSheetName] = React.useState(null);
             
             // Load templates from localStorage on component mount
             React.useEffect(() => {
@@ -108,6 +110,19 @@
                     localStorage.setItem('excelToSqlTemplates', JSON.stringify(templates));
                 }
             }, [templates]);
+            
+            const handleDeleteSheet = (sheetName) => {
+                if (confirm(`Are you sure you want to delete sheet "${sheetName}"?`)) {
+                    const updatedSheetsData = {...sheetsData};
+                    delete updatedSheetsData[sheetName];
+                    setSheetsData(updatedSheetsData);
+                }
+            };
+            
+            const showFullDataPreviewModal = (sheetName) => {
+                setPreviewSheetName(sheetName);
+                setShowFullDataPreview(true);
+            };
             
             const importExcel = (event) => {
                 const file = event.target.files[0];
@@ -519,6 +534,8 @@
                             onGenerateExcelFormula={generateExcelFormula}
                             onExportAllSql={exportAllSql}
                             isLoading={isLoading}
+                            onDeleteSheet={handleDeleteSheet}
+                            onShowFullDataPreview={showFullDataPreviewModal}
                         />;
                 }
             };
@@ -708,24 +725,11 @@
             onPreviewSql,
             onGenerateExcelFormula,
             onExportAllSql,
-            isLoading
+            isLoading,
+            onDeleteSheet,
+            onShowFullDataPreview
         }) => {
             const fileInputRef = React.useRef(null);
-            const [showFullDataPreview, setShowFullDataPreview] = React.useState(false);
-            const [previewSheetName, setPreviewSheetName] = React.useState(null);
-            
-            const handleDeleteSheet = (sheetName) => {
-                if (confirm(`Are you sure you want to delete sheet "${sheetName}"?`)) {
-                    const updatedSheetsData = {...sheetsData};
-                    delete updatedSheetsData[sheetName];
-                    setSheetsData(updatedSheetsData);
-                }
-            };
-            
-            const showFullDataPreviewModal = (sheetName) => {
-                setPreviewSheetName(sheetName);
-                setShowFullDataPreview(true);
-            };
             
             return (
                 <div>
@@ -892,7 +896,7 @@
                                                         )}
                                                         <button 
                                                             className="p-1 bg-purple-100 text-purple-600 rounded hover:bg-purple-200 tooltip"
-                                                            onClick={() => showFullDataPreviewModal(sheetName)}
+                                                            onClick={() => onShowFullDataPreview(sheetName)}
                                                             title="View All Data"
                                                         >
                                                             <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
