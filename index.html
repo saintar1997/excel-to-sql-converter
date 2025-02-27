@@ -1,12 +1,4 @@
-// Run filtering on component mount and when template is loaded
-            React.useEffect(() => {
-                // Wait a short moment to ensure data is fully loaded
-                const timer = setTimeout(() => {
-                    filterColumnsWithData();
-                }, 300);
-                
-                return () => clearTimeout(timer);
-            }, []);<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -946,6 +938,7 @@
             const [availableColumns, setAvailableColumns] = React.useState([]);
             const [selectedColumns, setSelectedColumns] = React.useState([]);
             const [columnTypes, setColumnTypes] = React.useState({});
+            const [columnsWithData, setColumnsWithData] = React.useState({});
             const [dragItem, setDragItem] = React.useState(null);
             const [showTemplates, setShowTemplates] = React.useState(false);
             
@@ -970,56 +963,39 @@
             }, [sheetData]);
             
             // Filter columns to only show those with data
-            const filterColumnsWithData = () => {
-                if (!sheetData.data || sheetData.data.length === 0) return;
-                
-                // Get all header indexes
-                const headers = [...sheetData.headers];
-                
-                // Track which columns have data
-                const columnsWithData = {};
-                
-                // Check all rows for data (up to a reasonable limit)
-                const rowsToCheck = Math.min(10, sheetData.data.length);
-                console.log(`Checking ${rowsToCheck} rows for data in columns`);
-                
-                for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
-                    const row = sheetData.data[rowIdx];
-                    if (!row) continue;
-                    
-                    headers.forEach((header, colIdx) => {
-                        const cellValue = row[colIdx];
-                        if (cellValue !== undefined && cellValue !== null && cellValue !== '') {
-                            columnsWithData[header] = true;
-                        }
-                    });
-                }
-                
-                console.log("Columns with data:", Object.keys(columnsWithData).length, "out of", headers.length);
-                
-                // Log which columns have data and which don't
-                headers.forEach(header => {
-                    if (columnsWithData[header]) {
-                        console.log(`Column "${header}" has data`);
-                    } else {
-                        console.log(`Column "${header}" has NO data`);
-                    }
-                });
-                
-                // Update available columns list to only include those with data
-                // but preserve the selection status (selected stays selected)
-                const selectedSet = new Set(selectedColumns);
-                const availableCols = headers.filter(col => 
-                    !selectedSet.has(col) && columnsWithData[col]
-                );
-                
-                console.log("Setting available columns:", availableCols.length);
-                setAvailableColumns(availableCols);
-            };
-            
-            // Run filtering when sheet data or selections change
             React.useEffect(() => {
-                filterColumnsWithData();
+                if (sheetData.data && sheetData.data.length > 0) {
+                    // Get all header indexes
+                    const headers = [...sheetData.headers];
+                    
+                    // Track which columns have data
+                    const columnsWithDataMap = {};
+                    
+                    // Check all rows (or limit to 10 for performance)
+                    const rowsToCheck = Math.min(10, sheetData.data.length);
+                    
+                    for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
+                        const row = sheetData.data[rowIdx];
+                        if (!row) continue;
+                        
+                        headers.forEach((header, colIdx) => {
+                            if (row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '') {
+                                columnsWithDataMap[header] = true;
+                            }
+                        });
+                    }
+                    
+                    setColumnsWithData(columnsWithDataMap);
+                    
+                    // Update available columns list to only include those with data
+                    // but preserve the selection status (selected stays selected)
+                    const selectedSet = new Set(selectedColumns);
+                    const availableCols = headers.filter(col => 
+                        !selectedSet.has(col) && columnsWithDataMap[col]
+                    );
+                    
+                    setAvailableColumns(availableCols);
+                }
             }, [sheetData.data, selectedColumns]);
             
             const handleHeaderRowChange = () => {
@@ -1028,15 +1004,7 @@
                     return;
                 }
                 
-                // Clear the available columns before changing header row
-                setAvailableColumns([]);
-                
                 onHeaderRowChange(headerRow);
-                
-                // After a moment, re-filter columns with data after header row changes have been applied
-                setTimeout(() => {
-                    filterColumnsWithData();
-                }, 800);
             };
             
             const moveToSelected = (column) => {
@@ -1369,14 +1337,19 @@
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
+                                    {/* Filter headers to only show columns with data or selected columns */}
                                     {sheetData.headers.map((header, idx) => (
-                                        <th 
-                                            key={idx}
-                                            scope="col" 
-                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                                        >
-                                            {header}
-                                        </th>
+                                        (columnsWithData[header] || selectedColumns.includes(header)) && (
+                                            <th 
+                                                key={idx}
+                                                scope="col" 
+                                                className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${
+                                                    selectedColumns.includes(header) ? 'bg-indigo-50' : ''
+                                                }`}
+                                            >
+                                                {header}
+                                            </th>
+                                        )
                                     ))}
                                 </tr>
                             </thead>
@@ -1384,14 +1357,16 @@
                                 {sheetData.data.slice(0, 5).map((row, rowIdx) => (
                                     <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                         {sheetData.headers.map((header, colIdx) => (
-                                            <td 
-                                                key={colIdx}
-                                                className={`px-6 py-4 whitespace-nowrap text-sm text-gray-500 ${
-                                                    selectedColumns.includes(header) ? 'bg-indigo-50 font-medium' : ''
-                                                }`}
-                                            >
-                                                {row[colIdx] !== undefined ? String(row[colIdx]) : ''}
-                                            </td>
+                                            (columnsWithData[header] || selectedColumns.includes(header)) && (
+                                                <td 
+                                                    key={colIdx}
+                                                    className={`px-6 py-4 whitespace-nowrap text-sm text-gray-500 ${
+                                                        selectedColumns.includes(header) ? 'bg-indigo-50 font-medium' : ''
+                                                    }`}
+                                                >
+                                                    {row[colIdx] !== undefined ? String(row[colIdx]) : ''}
+                                                </td>
+                                            )
                                         ))}
                                     </tr>
                                 ))}
@@ -1415,7 +1390,7 @@
                     </div>
                     
                     {/* Template selection modal */}
-                                                    {showTemplates && (
+                    {showTemplates && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                             <div className="bg-white rounded-lg shadow-lg w-11/12 max-w-4xl max-h-screen flex flex-col">
                                 <div className="flex justify-between items-center border-b p-4">
@@ -1494,15 +1469,6 @@
                                                                             onClick={() => {
                                                                                 onLoadTemplate(templateName, templateSheetName);
                                                                                 setShowTemplates(false);
-                                                                                // Clear available columns to force a refresh
-                                                                                setAvailableColumns([]);
-                                                                                // Explicitly set local state to match template values
-                                                                                setTableName(template.tableName || '');
-                                                                                setHeaderRow(template.headerRow || 1);
-                                                                                // Schedule a re-filtering after template is applied
-                                                                                setTimeout(() => {
-                                                                                    filterColumnsWithData();
-                                                                                }, 800);
                                                                             }}
                                                                         >
                                                                             Apply
