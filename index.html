@@ -959,68 +959,71 @@
             const [dragItem, setDragItem] = React.useState(null);
             const [showTemplates, setShowTemplates] = React.useState(false);
             
-            // Function to filter columns with data
-            const filterColumnsWithData = () => {
+            // Function to filter columns based on Data Preview
+            const filterColumnsFromPreview = () => {
                 const headers = [...sheetData.headers];
-                const data = sheetData.data || [];
                 
-                // Object to track which columns have data
-                const columnsWithData = {};
+                // Get exactly the same rows shown in Data Preview (first 5 rows)
+                const previewRows = sheetData.data.slice(0, 5);
                 
-                // Check all rows for data
-                data.forEach(row => {
-                    if (!row) return;
+                // Track which columns have non-empty values in the preview
+                const columnsInPreview = {};
+                
+                // Check each preview row
+                for (let rowIdx = 0; rowIdx < previewRows.length; rowIdx++) {
+                    const row = previewRows[rowIdx];
+                    if (!row) continue;
                     
-                    headers.forEach((header, colIdx) => {
-                        const cellValue = row[colIdx];
-                        if (cellValue !== undefined && cellValue !== null && cellValue !== '') {
-                            columnsWithData[header] = true;
+                    // Check each column in this row
+                    for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+                        const header = headers[colIdx];
+                        const value = row[colIdx];
+                        
+                        // If value is not empty, mark this column
+                        if (value !== undefined && value !== null && value !== '') {
+                            columnsInPreview[header] = true;
                         }
-                    });
-                });
+                    }
+                }
                 
-                // Get current selected columns
-                const selectedSet = new Set(selectedColumns);
-                
-                // Filter columns to those with data that aren't already selected
+                // Filter headers to only those with data in preview and not already selected
+                const currentSelected = new Set(selectedColumns);
                 return headers.filter(col => 
-                    !selectedSet.has(col) && columnsWithData[col]
+                    !currentSelected.has(col) && columnsInPreview[col]
                 );
             };
             
-            // Run on initial mount and when sheet data changes
+            // Update state when sheetData changes
             React.useEffect(() => {
-                // Update table name from props
+                // Update form values
                 setTableName(sheetData.tableName || '');
                 setHeaderRow(sheetData.headerRow || 1);
                 
-                // Get selected columns from props
+                // Get selected columns and types
                 const savedSelected = sheetData.selectedColumns || [];
-                setSelectedColumns(savedSelected);
-                
-                // Get column types from props
                 const savedTypes = sheetData.columnTypes || {};
+                
+                setSelectedColumns(savedSelected);
                 setColumnTypes(savedTypes);
                 
-                // Filter available columns to show only those with data
-                const availableCols = filterColumnsWithData();
-                setAvailableColumns(availableCols);
+                // Filter available columns based on Data Preview
+                const filteredColumns = filterColumnsFromPreview();
+                setAvailableColumns(filteredColumns);
             }, [sheetData]);
             
             // Update available columns when selected columns change
             React.useEffect(() => {
-                const availableCols = filterColumnsWithData();
-                setAvailableColumns(availableCols);
+                const filteredColumns = filterColumnsFromPreview();
+                setAvailableColumns(filteredColumns);
             }, [selectedColumns]);
             
-            // Handle header row change
             const handleHeaderRowChange = () => {
                 if (headerRow < 1) {
                     alert("Header row must be at least 1");
                     return;
                 }
                 
-                // Call the parent handler
+                // Apply header row change
                 onHeaderRowChange(headerRow);
             };
             
