@@ -461,15 +461,14 @@
                         }));
                     }, 500);
                 } else {
-                    // Just update the sheet data with all template values
+                    // Just update the sheet data
                     setSheetsData({
                         ...sheetsData,
                         [sheetName]: {
                             ...sheetsData[sheetName],
                             tableName: templateTableName,
                             columnTypes: { ...templateColumnTypes },
-                            selectedColumns: [...templateSelectedColumns],
-                            headerRow: templateHeaderRow // Make sure headerRow is explicitly updated
+                            selectedColumns: [...templateSelectedColumns]
                         }
                     });
                 }
