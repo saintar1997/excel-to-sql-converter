@@ -938,7 +938,6 @@
             const [availableColumns, setAvailableColumns] = React.useState([]);
             const [selectedColumns, setSelectedColumns] = React.useState([]);
             const [columnTypes, setColumnTypes] = React.useState({});
-            const [columnsWithData, setColumnsWithData] = React.useState({});
             const [dragItem, setDragItem] = React.useState(null);
             const [showTemplates, setShowTemplates] = React.useState(false);
             
@@ -969,10 +968,10 @@
                     const headers = [...sheetData.headers];
                     
                     // Track which columns have data
-                    const columnsWithDataMap = {};
+                    const columnsWithData = {};
                     
-                    // Check all rows (or limit to 10 for performance)
-                    const rowsToCheck = Math.min(10, sheetData.data.length);
+                    // Check first 5 rows (or less if there are fewer rows)
+                    const rowsToCheck = Math.min(5, sheetData.data.length);
                     
                     for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
                         const row = sheetData.data[rowIdx];
@@ -980,18 +979,16 @@
                         
                         headers.forEach((header, colIdx) => {
                             if (row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '') {
-                                columnsWithDataMap[header] = true;
+                                columnsWithData[header] = true;
                             }
                         });
                     }
-                    
-                    setColumnsWithData(columnsWithDataMap);
                     
                     // Update available columns list to only include those with data
                     // but preserve the selection status (selected stays selected)
                     const selectedSet = new Set(selectedColumns);
                     const availableCols = headers.filter(col => 
-                        !selectedSet.has(col) && columnsWithDataMap[col]
+                        !selectedSet.has(col) && columnsWithData[col]
                     );
                     
                     setAvailableColumns(availableCols);
@@ -1337,19 +1334,14 @@
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
-                                    {/* Filter headers to only show columns with data or selected columns */}
                                     {sheetData.headers.map((header, idx) => (
-                                        (columnsWithData[header] || selectedColumns.includes(header)) && (
-                                            <th 
-                                                key={idx}
-                                                scope="col" 
-                                                className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${
-                                                    selectedColumns.includes(header) ? 'bg-indigo-50' : ''
-                                                }`}
-                                            >
-                                                {header}
-                                            </th>
-                                        )
+                                        <th 
+                                            key={idx}
+                                            scope="col" 
+                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                        >
+                                            {header}
+                                        </th>
                                     ))}
                                 </tr>
                             </thead>
@@ -1357,16 +1349,14 @@
                                 {sheetData.data.slice(0, 5).map((row, rowIdx) => (
                                     <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                         {sheetData.headers.map((header, colIdx) => (
-                                            (columnsWithData[header] || selectedColumns.includes(header)) && (
-                                                <td 
-                                                    key={colIdx}
-                                                    className={`px-6 py-4 whitespace-nowrap text-sm text-gray-500 ${
-                                                        selectedColumns.includes(header) ? 'bg-indigo-50 font-medium' : ''
-                                                    }`}
-                                                >
-                                                    {row[colIdx] !== undefined ? String(row[colIdx]) : ''}
-                                                </td>
-                                            )
+                                            <td 
+                                                key={colIdx}
+                                                className={`px-6 py-4 whitespace-nowrap text-sm text-gray-500 ${
+                                                    selectedColumns.includes(header) ? 'bg-indigo-50 font-medium' : ''
+                                                }`}
+                                            >
+                                                {row[colIdx] !== undefined ? String(row[colIdx]) : ''}
+                                            </td>
                                         ))}
                                     </tr>
                                 ))}
