@@ -217,7 +217,6 @@
                         // Determine whether to keep or reset columns
                         let selectedColumns = [];
                         let columnTypes = {};
-                        let tableName = sheetsData[sheetName].tableName || '';
                         
                         if (preserveColumns && columnsToPreserve && typesToPreserve) {
                             // Check if preserved columns still exist in the new headers
@@ -242,22 +241,11 @@
                                 headerRow: newHeaderRow,
                                 selectedColumns: selectedColumns,
                                 columnTypes: columnTypes,
-                                tableName: tableName
                             }
                         };
                         
                         setSheetsData(updatedSheetsData);
                         setIsLoading(false);
-                        
-                        // If we're updating this sheet in configure view, force table name update
-                        if (currentView === 'configureSheet' && selectedSheetName === sheetName) {
-                            setTimeout(() => {
-                                const tableNameInput = document.querySelector('input[placeholder="Enter SQL table name"]');
-                                if (tableNameInput && tableName) {
-                                    tableNameInput.value = tableName;
-                                }
-                            }, 100);
-                        }
                     } catch (error) {
                         console.error("Error reparsing Excel file:", error);
                         setIsLoading(false);
@@ -450,15 +438,6 @@
                 const templateSelectedColumns = templateData.selectedColumns || [];
                 const templateHeaderRow = templateData.headerRow || 1;
                 
-                // Force UI update for table name - must happen first to be visible
-                if (currentView === 'configureSheet' && selectedSheetName === sheetName) {
-                    // If we're in the configuration view for this sheet, update the form field directly
-                    const tableNameInput = document.querySelector('input[placeholder="Enter SQL table name"]');
-                    if (tableNameInput) {
-                        tableNameInput.value = templateTableName;
-                    }
-                }
-                
                 // If header row is different or specified in template, reload the data
                 if (templateHeaderRow !== sheetsData[sheetName].headerRow) {
                     // Change header row but preserve columns and types from template
@@ -470,16 +449,19 @@
                         templateColumnTypes
                     );
                     
-                    // Update the state with the template's table name
-                    setSheetsData(prevData => ({
-                        ...prevData,
-                        [sheetName]: {
-                            ...prevData[sheetName],
-                            tableName: templateTableName
-                        }
-                    }));
+                    // Since changeHeaderRow is async, we need to update the table name separately
+                    // after a slight delay to ensure the sheet data is updated first
+                    setTimeout(() => {
+                        setSheetsData(prevData => ({
+                            ...prevData,
+                            [sheetName]: {
+                                ...prevData[sheetName],
+                                tableName: templateTableName
+                            }
+                        }));
+                    }, 500);
                 } else {
-                    // Just update the sheet data with all template values including table name
+                    // Just update the sheet data with all template values
                     setSheetsData({
                         ...sheetsData,
                         [sheetName]: {
@@ -487,7 +469,7 @@
                             tableName: templateTableName,
                             columnTypes: { ...templateColumnTypes },
                             selectedColumns: [...templateSelectedColumns],
-                            headerRow: templateHeaderRow
+                            headerRow: templateHeaderRow // Make sure headerRow is explicitly updated
                         }
                     });
                 }
@@ -959,63 +941,61 @@
             const [dragItem, setDragItem] = React.useState(null);
             const [showTemplates, setShowTemplates] = React.useState(false);
             
-            // Function to filter columns based on Data Preview
-            const filterColumnsFromPreview = () => {
-                const headers = [...sheetData.headers];
-                
-                // Get exactly the same rows shown in Data Preview (first 5 rows)
-                const previewRows = sheetData.data.slice(0, 5);
-                
-                // Track which columns have non-empty values in the preview
-                const columnsInPreview = {};
-                
-                // Check each preview row
-                for (let rowIdx = 0; rowIdx < previewRows.length; rowIdx++) {
-                    const row = previewRows[rowIdx];
-                    if (!row) continue;
-                    
-                    // Check each column in this row
-                    for (let colIdx = 0; colIdx < headers.length; colIdx++) {
-                        const header = headers[colIdx];
-                        const value = row[colIdx];
-                        
-                        // If value is not empty, mark this column
-                        if (value !== undefined && value !== null && value !== '') {
-                            columnsInPreview[header] = true;
-                        }
-                    }
-                }
-                
-                // Filter headers to only those with data in preview and not already selected
-                const currentSelected = new Set(selectedColumns);
-                return headers.filter(col => 
-                    !currentSelected.has(col) && columnsInPreview[col]
-                );
-            };
-            
-            // Update state when sheetData changes
+            // Update local state when sheetData changes (e.g., when a template is loaded)
             React.useEffect(() => {
-                // Update form values
                 setTableName(sheetData.tableName || '');
                 setHeaderRow(sheetData.headerRow || 1);
                 
-                // Get selected columns and types
+                // Copy header data from sheetData
+                const headers = [...sheetData.headers];
+                
+                // Initialize selected columns from saved data
                 const savedSelected = sheetData.selectedColumns || [];
                 const savedTypes = sheetData.columnTypes || {};
                 
+                // Filter available columns to those not selected and that have data
+                const availableCols = headers.filter(col => !savedSelected.includes(col));
+                
+                setAvailableColumns(availableCols);
                 setSelectedColumns(savedSelected);
                 setColumnTypes(savedTypes);
-                
-                // Filter available columns based on Data Preview
-                const filteredColumns = filterColumnsFromPreview();
-                setAvailableColumns(filteredColumns);
             }, [sheetData]);
             
-            // Update available columns when selected columns change
+            // Filter columns to only show those with data based on Data Preview
             React.useEffect(() => {
-                const filteredColumns = filterColumnsFromPreview();
-                setAvailableColumns(filteredColumns);
-            }, [selectedColumns]);
+                if (sheetData.data && sheetData.data.length > 0) {
+                    // Get all header indexes
+                    const headers = [...sheetData.headers];
+                    
+                    // Track which columns have data
+                    const columnsWithData = {};
+                    
+                    // Check the exact rows shown in Data Preview (first 5 rows or fewer)
+                    const previewRows = sheetData.data.slice(0, 5);
+                    
+                    previewRows.forEach(row => {
+                        if (!row) return;
+                        
+                        headers.forEach((header, colIdx) => {
+                            const cellValue = row[colIdx];
+                            if (cellValue !== undefined && cellValue !== null && String(cellValue).trim() !== '') {
+                                columnsWithData[header] = true;
+                            }
+                        });
+                    });
+                    
+                    // Update available columns list to only include those with data in the preview
+                    // but preserve the selection status (selected stays selected)
+                    const selectedSet = new Set(selectedColumns);
+                    
+                    // Columns that have data in the preview and aren't already selected
+                    const availableCols = headers.filter(col => 
+                        !selectedSet.has(col) && columnsWithData[col]
+                    );
+                    
+                    setAvailableColumns(availableCols);
+                }
+            }, [sheetData.data, selectedColumns]);
             
             const handleHeaderRowChange = () => {
                 if (headerRow < 1) {
@@ -1023,7 +1003,6 @@
                     return;
                 }
                 
-                // Apply header row change
                 onHeaderRowChange(headerRow);
             };
             
