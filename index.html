@@ -438,6 +438,15 @@
                 const templateSelectedColumns = templateData.selectedColumns || [];
                 const templateHeaderRow = templateData.headerRow || 1;
                 
+                // Force UI update for table name - must happen first to be visible
+                if (currentView === 'configureSheet' && selectedSheetName === sheetName) {
+                    // If we're in the configuration view for this sheet, update the form field directly
+                    const tableNameInput = document.querySelector('input[placeholder="Enter SQL table name"]');
+                    if (tableNameInput) {
+                        tableNameInput.value = templateTableName;
+                    }
+                }
+                
                 // If header row is different or specified in template, reload the data
                 if (templateHeaderRow !== sheetsData[sheetName].headerRow) {
                     // Change header row but preserve columns and types from template
@@ -449,19 +458,16 @@
                         templateColumnTypes
                     );
                     
-                    // Since changeHeaderRow is async, we need to update the table name separately
-                    // after a slight delay to ensure the sheet data is updated first
-                    setTimeout(() => {
-                        setSheetsData(prevData => ({
-                            ...prevData,
-                            [sheetName]: {
-                                ...prevData[sheetName],
-                                tableName: templateTableName
-                            }
-                        }));
-                    }, 500);
+                    // Update the state with the template's table name
+                    setSheetsData(prevData => ({
+                        ...prevData,
+                        [sheetName]: {
+                            ...prevData[sheetName],
+                            tableName: templateTableName
+                        }
+                    }));
                 } else {
-                    // Just update the sheet data with all template values
+                    // Just update the sheet data with all template values including table name
                     setSheetsData({
                         ...sheetsData,
                         [sheetName]: {
@@ -469,7 +475,7 @@
                             tableName: templateTableName,
                             columnTypes: { ...templateColumnTypes },
                             selectedColumns: [...templateSelectedColumns],
-                            headerRow: templateHeaderRow // Make sure headerRow is explicitly updated
+                            headerRow: templateHeaderRow
                         }
                     });
                 }
@@ -961,19 +967,36 @@
                 setColumnTypes(savedTypes);
             }, [sheetData]);
             
-            // Update available columns to match exactly what's in the headers
+            // Filter available columns to only show those with actual data
             React.useEffect(() => {
-                if (sheetData.headers) {
+                if (sheetData.data && sheetData.data.length > 0) {
                     // Get all headers from the sheet
                     const headers = [...sheetData.headers];
                     
-                    // Filter out headers that are already selected
+                    // Check which columns actually have data
+                    const columnsWithData = {};
+                    
+                    // Examine all data rows
+                    sheetData.data.forEach(row => {
+                        if (!row) return;
+                        
+                        headers.forEach((header, colIdx) => {
+                            // If this column has any non-empty data, mark it
+                            if (row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '') {
+                                columnsWithData[header] = true;
+                            }
+                        });
+                    });
+                    
+                    // Filter to show only columns with data that aren't already selected
                     const selectedSet = new Set(selectedColumns);
-                    const availableCols = headers.filter(col => !selectedSet.has(col));
+                    const availableCols = headers.filter(col => 
+                        !selectedSet.has(col) && columnsWithData[col]
+                    );
                     
                     setAvailableColumns(availableCols);
                 }
-            }, [sheetData.headers, selectedColumns]);
+            }, [sheetData.data, sheetData.headers, selectedColumns]);
             
             const handleHeaderRowChange = () => {
                 if (headerRow < 1) {
