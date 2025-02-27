@@ -217,6 +217,7 @@
                         // Determine whether to keep or reset columns
                         let selectedColumns = [];
                         let columnTypes = {};
+                        let tableName = sheetsData[sheetName].tableName || '';
                         
                         if (preserveColumns && columnsToPreserve && typesToPreserve) {
                             // Check if preserved columns still exist in the new headers
@@ -241,11 +242,22 @@
                                 headerRow: newHeaderRow,
                                 selectedColumns: selectedColumns,
                                 columnTypes: columnTypes,
+                                tableName: tableName
                             }
                         };
                         
                         setSheetsData(updatedSheetsData);
                         setIsLoading(false);
+                        
+                        // If we're updating this sheet in configure view, force table name update
+                        if (currentView === 'configureSheet' && selectedSheetName === sheetName) {
+                            setTimeout(() => {
+                                const tableNameInput = document.querySelector('input[placeholder="Enter SQL table name"]');
+                                if (tableNameInput && tableName) {
+                                    tableNameInput.value = tableName;
+                                }
+                            }, 100);
+                        }
                     } catch (error) {
                         console.error("Error reparsing Excel file:", error);
                         setIsLoading(false);
@@ -947,63 +959,68 @@
             const [dragItem, setDragItem] = React.useState(null);
             const [showTemplates, setShowTemplates] = React.useState(false);
             
-            // Update local state when sheetData changes (e.g., when a template is loaded)
+            // Function to filter columns with data
+            const filterColumnsWithData = () => {
+                const headers = [...sheetData.headers];
+                const data = sheetData.data || [];
+                
+                // Object to track which columns have data
+                const columnsWithData = {};
+                
+                // Check all rows for data
+                data.forEach(row => {
+                    if (!row) return;
+                    
+                    headers.forEach((header, colIdx) => {
+                        const cellValue = row[colIdx];
+                        if (cellValue !== undefined && cellValue !== null && cellValue !== '') {
+                            columnsWithData[header] = true;
+                        }
+                    });
+                });
+                
+                // Get current selected columns
+                const selectedSet = new Set(selectedColumns);
+                
+                // Filter columns to those with data that aren't already selected
+                return headers.filter(col => 
+                    !selectedSet.has(col) && columnsWithData[col]
+                );
+            };
+            
+            // Run on initial mount and when sheet data changes
             React.useEffect(() => {
+                // Update table name from props
                 setTableName(sheetData.tableName || '');
                 setHeaderRow(sheetData.headerRow || 1);
                 
-                // Copy header data from sheetData
-                const headers = [...sheetData.headers];
-                
-                // Initialize selected columns from saved data
+                // Get selected columns from props
                 const savedSelected = sheetData.selectedColumns || [];
-                const savedTypes = sheetData.columnTypes || {};
-                
-                // Filter available columns to those not selected and that have data
-                const availableCols = headers.filter(col => !savedSelected.includes(col));
-                
-                setAvailableColumns(availableCols);
                 setSelectedColumns(savedSelected);
+                
+                // Get column types from props
+                const savedTypes = sheetData.columnTypes || {};
                 setColumnTypes(savedTypes);
+                
+                // Filter available columns to show only those with data
+                const availableCols = filterColumnsWithData();
+                setAvailableColumns(availableCols);
             }, [sheetData]);
             
-            // Filter available columns to only show those with actual data
+            // Update available columns when selected columns change
             React.useEffect(() => {
-                if (sheetData.data && sheetData.data.length > 0) {
-                    // Get all headers from the sheet
-                    const headers = [...sheetData.headers];
-                    
-                    // Check which columns actually have data
-                    const columnsWithData = {};
-                    
-                    // Examine all data rows
-                    sheetData.data.forEach(row => {
-                        if (!row) return;
-                        
-                        headers.forEach((header, colIdx) => {
-                            // If this column has any non-empty data, mark it
-                            if (row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '') {
-                                columnsWithData[header] = true;
-                            }
-                        });
-                    });
-                    
-                    // Filter to show only columns with data that aren't already selected
-                    const selectedSet = new Set(selectedColumns);
-                    const availableCols = headers.filter(col => 
-                        !selectedSet.has(col) && columnsWithData[col]
-                    );
-                    
-                    setAvailableColumns(availableCols);
-                }
-            }, [sheetData.data, sheetData.headers, selectedColumns]);
+                const availableCols = filterColumnsWithData();
+                setAvailableColumns(availableCols);
+            }, [selectedColumns]);
             
+            // Handle header row change
             const handleHeaderRowChange = () => {
                 if (headerRow < 1) {
                     alert("Header row must be at least 1");
                     return;
                 }
                 
+                // Call the parent handler
                 onHeaderRowChange(headerRow);
             };
             
