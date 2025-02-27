@@ -322,6 +322,9 @@
                     return;
                 }
                 
+                // Calculate the data start row (header row + 1)
+                const dataRowNum = sheetData.headerRow + 1;
+                
                 // Get column references and types
                 const formulaParts = [];
                 const headers = sheetData.headers;
@@ -332,9 +335,9 @@
                     const colLetter = String.fromCharCode(65 + colIdx);
                     
                     if (sheetData.columnTypes[col]?.toLowerCase() === "text") {
-                        formulaParts.push(`\"&LTRIM(RTRIM(N'\"&${colLetter}2&\"'))&\"`);
+                        formulaParts.push(`\"&LTRIM(RTRIM(N'\"&${colLetter}${dataRowNum}&\"'))&\"`);
                     } else {
-                        formulaParts.push(`\"&${colLetter}2&\"`);
+                        formulaParts.push(`\"&${colLetter}${dataRowNum}&\"`);
                     }
                 }
                 
@@ -624,6 +627,71 @@
                             </div>
                         </div>
                     </div>
+                    
+                    {/* Full data preview modal */}
+                    {showFullDataPreview && previewSheetName && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-lg shadow-lg w-11/12 max-w-5xl max-h-screen flex flex-col">
+                                <div className="flex justify-between items-center border-b p-4">
+                                    <h3 className="text-lg font-medium">Data Preview: {previewSheetName}</h3>
+                                    <button 
+                                        className="text-gray-400 hover:text-gray-500"
+                                        onClick={() => setShowFullDataPreview(false)}
+                                    >
+                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div className="p-4 overflow-auto flex-grow">
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    {sheetsData[previewSheetName].headers.map((header, idx) => (
+                                                        <th 
+                                                            key={idx}
+                                                            scope="col" 
+                                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                                        >
+                                                            {header}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {sheetsData[previewSheetName].data.map((row, rowIdx) => (
+                                                    <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                                        {sheetsData[previewSheetName].headers.map((header, colIdx) => (
+                                                            <td 
+                                                                key={colIdx}
+                                                                className={`px-6 py-4 whitespace-nowrap text-sm text-gray-500 ${
+                                                                    sheetsData[previewSheetName].selectedColumns.includes(header) ? 'bg-indigo-50 font-medium' : ''
+                                                                }`}
+                                                            >
+                                                                {row[colIdx] !== undefined ? String(row[colIdx]) : ''}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div className="border-t p-4 flex justify-between">
+                                    <div className="text-gray-500">
+                                        Showing {sheetsData[previewSheetName].data.length} rows
+                                    </div>
+                                    <button 
+                                        className="btn-secondary"
+                                        onClick={() => setShowFullDataPreview(false)}
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
@@ -643,6 +711,21 @@
             isLoading
         }) => {
             const fileInputRef = React.useRef(null);
+            const [showFullDataPreview, setShowFullDataPreview] = React.useState(false);
+            const [previewSheetName, setPreviewSheetName] = React.useState(null);
+            
+            const handleDeleteSheet = (sheetName) => {
+                if (confirm(`Are you sure you want to delete sheet "${sheetName}"?`)) {
+                    const updatedSheetsData = {...sheetsData};
+                    delete updatedSheetsData[sheetName];
+                    setSheetsData(updatedSheetsData);
+                }
+            };
+            
+            const showFullDataPreviewModal = (sheetName) => {
+                setPreviewSheetName(sheetName);
+                setShowFullDataPreview(true);
+            };
             
             return (
                 <div>
@@ -807,6 +890,15 @@
                                                                 </button>
                                                             </>
                                                         )}
+                                                        <button 
+                                                            className="p-1 bg-purple-100 text-purple-600 rounded hover:bg-purple-200 tooltip"
+                                                            onClick={() => showFullDataPreviewModal(sheetName)}
+                                                            title="View All Data"
+                                                        >
+                                                            <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                                                            </svg>
+                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
