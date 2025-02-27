@@ -438,9 +438,24 @@
                 const templateSelectedColumns = templateData.selectedColumns || [];
                 const templateHeaderRow = templateData.headerRow || 1;
                 
-                // If header row is different or specified in template, reload the data
+                // Create a function to update the sheet data comprehensively
+                const updateSheetData = (prevData) => {
+                    const updatedSheetData = {
+                        ...prevData[sheetName],
+                        tableName: templateTableName,
+                        columnTypes: { ...templateColumnTypes },
+                        selectedColumns: [...templateSelectedColumns],
+                        headerRow: templateHeaderRow
+                    };
+                    
+                    return {
+                        ...prevData,
+                        [sheetName]: updatedSheetData
+                    };
+                };
+                
+                // If header row is different, reload the data
                 if (templateHeaderRow !== sheetsData[sheetName].headerRow) {
-                    // Change header row but preserve columns and types from template
                     changeHeaderRow(
                         sheetName, 
                         templateHeaderRow, 
@@ -449,29 +464,13 @@
                         templateColumnTypes
                     );
                     
-                    // Since changeHeaderRow is async, we need to update the table name separately
-                    // after a slight delay to ensure the sheet data is updated first
+                    // Add a small delay to ensure sheet data is updated first
                     setTimeout(() => {
-                        setSheetsData(prevData => ({
-                            ...prevData,
-                            [sheetName]: {
-                                ...prevData[sheetName],
-                                tableName: templateTableName
-                            }
-                        }));
+                        setSheetsData(prevData => updateSheetData(prevData));
                     }, 500);
                 } else {
-                    // Just update the sheet data with all template values
-                    setSheetsData({
-                        ...sheetsData,
-                        [sheetName]: {
-                            ...sheetsData[sheetName],
-                            tableName: templateTableName,
-                            columnTypes: { ...templateColumnTypes },
-                            selectedColumns: [...templateSelectedColumns],
-                            headerRow: templateHeaderRow // Make sure headerRow is explicitly updated
-                        }
-                    });
+                    // Directly update sheet data if header row is the same
+                    setSheetsData(prevData => updateSheetData(prevData));
                 }
                 
                 alert(`Template "${templateName}" applied successfully with header row ${templateHeaderRow}`);
