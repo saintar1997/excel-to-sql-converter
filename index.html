@@ -962,67 +962,38 @@
             }, [sheetData]);
             
             // Filter columns to only show those with data
-            const filterColumnsWithData = () => {
-                if (!sheetData.data || sheetData.data.length === 0) return;
-                
-                // Get all header indexes
-                const headers = [...sheetData.headers];
-                
-                // Track which columns have data
-                const columnsWithData = {};
-                
-                // Check all rows for data (up to a reasonable limit)
-                const rowsToCheck = Math.min(10, sheetData.data.length);
-                console.log(`Checking ${rowsToCheck} rows for data in columns`);
-                
-                for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
-                    const row = sheetData.data[rowIdx];
-                    if (!row) continue;
+            React.useEffect(() => {
+                if (sheetData.data && sheetData.data.length > 0) {
+                    // Get all header indexes
+                    const headers = [...sheetData.headers];
                     
-                    headers.forEach((header, colIdx) => {
-                        const cellValue = row[colIdx];
-                        if (cellValue !== undefined && cellValue !== null && cellValue !== '') {
-                            columnsWithData[header] = true;
-                        }
-                    });
-                }
-                
-                console.log("Columns with data:", Object.keys(columnsWithData).length, "out of", headers.length);
-                
-                // Log which columns have data and which don't
-                headers.forEach(header => {
-                    if (columnsWithData[header]) {
-                        console.log(`Column "${header}" has data`);
-                    } else {
-                        console.log(`Column "${header}" has NO data`);
+                    // Track which columns have data
+                    const columnsWithData = {};
+                    
+                    // Check first 5 rows (or less if there are fewer rows)
+                    const rowsToCheck = Math.min(5, sheetData.data.length);
+                    
+                    for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
+                        const row = sheetData.data[rowIdx];
+                        if (!row) continue;
+                        
+                        headers.forEach((header, colIdx) => {
+                            if (row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '') {
+                                columnsWithData[header] = true;
+                            }
+                        });
                     }
-                });
-                
-                // Update available columns list to only include those with data
-                // but preserve the selection status (selected stays selected)
-                const selectedSet = new Set(selectedColumns);
-                const availableCols = headers.filter(col => 
-                    !selectedSet.has(col) && columnsWithData[col]
-                );
-                
-                console.log("Setting available columns:", availableCols.length);
-                setAvailableColumns(availableCols);
-            };
-            
-            // Run filtering when sheet data or selections change
-            React.useEffect(() => {
-                filterColumnsWithData();
+                    
+                    // Update available columns list to only include those with data
+                    // but preserve the selection status (selected stays selected)
+                    const selectedSet = new Set(selectedColumns);
+                    const availableCols = headers.filter(col => 
+                        !selectedSet.has(col) && columnsWithData[col]
+                    );
+                    
+                    setAvailableColumns(availableCols);
+                }
             }, [sheetData.data, selectedColumns]);
-            
-            // Run filtering on component mount and when template is loaded
-            React.useEffect(() => {
-                // Wait a short moment to ensure data is fully loaded
-                const timer = setTimeout(() => {
-                    filterColumnsWithData();
-                }, 300);
-                
-                return () => clearTimeout(timer);
-            }, []);
             
             const handleHeaderRowChange = () => {
                 if (headerRow < 1) {
@@ -1030,15 +1001,7 @@
                     return;
                 }
                 
-                // Clear the available columns before changing header row
-                setAvailableColumns([]);
-                
                 onHeaderRowChange(headerRow);
-                
-                // After a moment, re-filter columns with data after header row changes have been applied
-                setTimeout(() => {
-                    filterColumnsWithData();
-                }, 800);
             };
             
             const moveToSelected = (column) => {
@@ -1416,6 +1379,7 @@
                         </button>
                     </div>
                     
+                    {/* Template selection modal */}
                     {showTemplates && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                             <div className="bg-white rounded-lg shadow-lg w-11/12 max-w-4xl max-h-screen flex flex-col">
@@ -1495,15 +1459,6 @@
                                                                             onClick={() => {
                                                                                 onLoadTemplate(templateName, templateSheetName);
                                                                                 setShowTemplates(false);
-                                                                                // Clear available columns to force a refresh
-                                                                                setAvailableColumns([]);
-                                                                                // Explicitly set local state to match template values
-                                                                                setTableName(template.tableName || '');
-                                                                                setHeaderRow(template.headerRow || 1);
-                                                                                // Schedule a re-filtering after template is applied
-                                                                                setTimeout(() => {
-                                                                                    filterColumnsWithData();
-                                                                                }, 800);
                                                                             }}
                                                                         >
                                                                             Apply
