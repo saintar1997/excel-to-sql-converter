@@ -381,10 +381,6 @@
             const generateExcelFormula = (sheetName) => {
                 const sheetData = sheetsData[sheetName];
 
-                // ตรวจสอบค่า columnTypes และแสดงเพื่อการดีบั๊ก
-                console.log("Sheet Data:", sheetData);
-                console.log("Column Types:", sheetData.columnTypes || {});
-                
                 const tableName = sheetData.tableName;
                 if (!tableName) {
                     alert("Table name not configured");
@@ -467,71 +463,155 @@
                 }));
             };
 
-            const loadTemplate = (templateName, sheetName) => {
-                if (!templates[templateName] || !templates[templateName][sheetName]) {
+            const loadTemplate = (templateName, templateSheetName) => {
+                if (!templates[templateName] || !templates[templateName][templateSheetName]) {
                     alert("Template not found");
                     return;
                 }
 
-                const templateData = templates[templateName][sheetName];
+                // ดึงข้อมูลเทมเพลต
+                const templateData = templates[templateName][templateSheetName];
+
+                // ให้ใช้ชีตปัจจุบันที่กำลังทำงานอยู่ (selectedSheetName) แทนที่จะใช้ชื่อชีตจากเทมเพลต
+                const currentSheetName = selectedSheetName;
+                
+                // ตรวจสอบว่า currentSheetName มีอยู่จริง
+                if (!sheetsData[currentSheetName]) {
+                    alert(`Current sheet not found. Please try again.`);
+                    return;
+                }
 
                 // Get template values with robust default handling
-                const templateTableName = templateData.tableName || `${sheetName}_table`;
-                const templateColumnTypes = { ...templateData.columnTypes } || {}; // Ensure it's an object
+                const templateTableName = templateData.tableName || `${currentSheetName}_table`;
+                const templateColumnTypes = { ...templateData.columnTypes } || {};
                 const templateSelectedColumns = [...(templateData.selectedColumns || [])];
                 const templateHeaderRow = templateData.headerRow || 1;
 
-                // If header row is different, change it first
-                if (templateHeaderRow !== sheetsData[sheetName].headerRow) {
-                    // Trigger header row change with a Promise
-                    const changeHeaderRowPromise = new Promise((resolve) => {
-                        changeHeaderRow(
-                            sheetName, 
-                            templateHeaderRow, 
-                            true,  // Preserve columns
-                            templateSelectedColumns,
-                            templateColumnTypes
-                        );
-                        // ใช้ setTimeout เพื่อหน่วงเวลาเล็กน้อย (100 ms) แล้ว Resolve
-                        setTimeout(() => {
-                            resolve();
-                        }, 100);
-                    });
-                    
-                    // เมื่อการเปลี่ยน header row เสร็จสิ้น ให้อัปเดตค่าอื่นๆ
-                    changeHeaderRowPromise.then(() => {
-                        setSheetsData(prevData => ({
-                            ...prevData,
-                            [sheetName]: {
-                                ...prevData[sheetName],
-                                tableName: templateTableName,
-                                columnTypes: { ...templateColumnTypes },
-                                selectedColumns: templateSelectedColumns
-                                // ไม่ต้องอัปเดต headerRow อีกครั้งเพราะ changeHeaderRow ได้ทำแล้ว
-                            }
-                        }));
+                // อ่าน Excel file โดยตรงเพื่อให้ได้ headers ที่ถูกต้อง
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
                         
-                        // เรียกใช้ฟังก์ชันเฉพาะเพื่อให้แน่ใจว่า tableName ถูกอัปเดต
-                        updateTableName(sheetName, templateTableName);
-                    });
-                } else {
-                    // If header row is the same, just update the configuration
-                    setSheetsData(prevData => ({
-                        ...prevData,
-                        [sheetName]: {
-                            ...prevData[sheetName],
-                            tableName: templateTableName,
-                            columnTypes: { ...templateColumnTypes },
-                            selectedColumns: templateSelectedColumns,
-                            headerRow: templateHeaderRow
+                        // ใช้ชีตปัจจุบันแทนชีตในเทมเพลต
+                        const worksheet = workbook.Sheets[currentSheetName];
+                        if (!worksheet) {
+                            alert(`Sheet "${currentSheetName}" not found in current file.`);
+                            return;
                         }
-                    }));
-                    
-                    // เรียกใช้ฟังก์ชันเฉพาะเพื่อให้แน่ใจว่า tableName ถูกอัปเดต
-                    updateTableName(sheetName, templateTableName);
-                }
+                        
+                        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                        
+                        // ใช้ templateHeaderRow (0-based index) เพื่อดึง headers ที่ถูกต้อง
+                        const headerRowIndex = templateHeaderRow - 1; // แปลงเป็น 0-based index
+                        if (headerRowIndex < 0 || headerRowIndex >= json.length) {
+                            alert(`Header row ${templateHeaderRow} is out of range for this sheet.`);
+                            return;
+                        }
+                        
+                        const currentHeaders = json[headerRowIndex] || [];
+                        
+                        // ตรวจสอบว่าคอลัมน์ที่เลือกในเทมเพลตมีอยู่ในชีตปัจจุบันหรือไม่
+                        const missingColumns = templateSelectedColumns.filter(col => !currentHeaders.includes(col));
+                        
+                        // ทำการเปลี่ยน headerRow และใช้เทมเพลต
+                        if (templateHeaderRow !== sheetsData[currentSheetName].headerRow) {
+                            // หากมีคอลัมน์ที่ไม่พบ แจ้งเตือนผู้ใช้
+                            if (missingColumns.length > 0) {
+                                alert(`Warning: The following columns from the template were not found in the current sheet (with header row ${templateHeaderRow}):\n\n${missingColumns.join(", ")}\n\nThe template will be applied with only the matching columns.`);
+                                
+                                // กรองเฉพาะคอลัมน์ที่มีอยู่จริง
+                                const validColumns = templateSelectedColumns.filter(col => currentHeaders.includes(col));
+                                const validColumnTypes = {};
+                                
+                                // กรองประเภทคอลัมน์เฉพาะที่มีอยู่จริง
+                                validColumns.forEach(col => {
+                                    if (templateColumnTypes[col]) {
+                                        validColumnTypes[col] = templateColumnTypes[col];
+                                    }
+                                });
+                                
+                                // เปลี่ยน headerRow พร้อมกับเก็บคอลัมน์ที่ถูกต้อง
+                                changeHeaderRow(
+                                    currentSheetName, 
+                                    templateHeaderRow, 
+                                    true,  // เก็บคอลัมน์ที่มีอยู่จริง
+                                    validColumns,
+                                    validColumnTypes
+                                );
+                            } else {
+                                // ทุกคอลัมน์มีอยู่จริง เปลี่ยน headerRow พร้อมเก็บข้อมูลทั้งหมด
+                                changeHeaderRow(
+                                    currentSheetName, 
+                                    templateHeaderRow, 
+                                    true,  // เก็บคอลัมน์ทั้งหมด
+                                    templateSelectedColumns,
+                                    templateColumnTypes
+                                );
+                            }
+                            
+                            // หลังจากเปลี่ยน headerRow แล้ว อัปเดต tableName
+                            setTimeout(() => {
+                                setSheetsData(prevData => ({
+                                    ...prevData,
+                                    [currentSheetName]: {
+                                        ...prevData[currentSheetName],
+                                        tableName: templateTableName
+                                    }
+                                }));
+                            }, 200);
+                        } else {
+                            // headerRow เท่ากันอยู่แล้ว แค่ตรวจสอบคอลัมน์
+                            if (missingColumns.length > 0) {
+                                alert(`Warning: The following columns from the template were not found in the current sheet:\n\n${missingColumns.join(", ")}\n\nThe template will be applied with only the matching columns.`);
+                                
+                                // กรองเฉพาะคอลัมน์ที่มีอยู่จริง
+                                const validColumns = templateSelectedColumns.filter(col => currentHeaders.includes(col));
+                                const validColumnTypes = {};
+                                
+                                // กรองประเภทคอลัมน์เฉพาะที่มีอยู่จริง
+                                validColumns.forEach(col => {
+                                    if (templateColumnTypes[col]) {
+                                        validColumnTypes[col] = templateColumnTypes[col];
+                                    }
+                                });
+                                
+                                // อัปเดตเฉพาะคอลัมน์ที่มีอยู่จริง
+                                setSheetsData(prevData => ({
+                                    ...prevData,
+                                    [currentSheetName]: {
+                                        ...prevData[currentSheetName],
+                                        tableName: templateTableName,
+                                        columnTypes: validColumnTypes,
+                                        selectedColumns: validColumns
+                                    }
+                                }));
+                            } else {
+                                // ทุกคอลัมน์มีอยู่จริง ใช้เทมเพลตได้เลย
+                                setSheetsData(prevData => ({
+                                    ...prevData,
+                                    [currentSheetName]: {
+                                        ...prevData[currentSheetName],
+                                        tableName: templateTableName,
+                                        columnTypes: { ...templateColumnTypes },
+                                        selectedColumns: [...templateSelectedColumns]
+                                    }
+                                }));
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Error reading Excel file:", error);
+                        alert("Failed to apply template. Please check the file format.");
+                    }
+                };
+                
+                reader.onerror = () => {
+                    alert("Error reading file");
+                };
+                
+                reader.readAsArrayBuffer(excelFile);
             };
-
 
             const deleteTemplate = (templateName) => {
                 if (confirm(`Are you sure you want to delete template "${templateName}"?`)) {
@@ -620,7 +700,7 @@
                             onHeaderRowChange={(newHeaderRow) => changeHeaderRow(selectedSheetName, newHeaderRow, false)}
                             templates={templates}
                             onSaveTemplate={(templateName) => saveTemplate(selectedSheetName, templateName)}
-                            onLoadTemplate={(templateName, sheetName) => loadTemplate(templateName, sheetName)}
+                            onLoadTemplate={(templateName, templateSheetName) => loadTemplate(templateName, templateSheetName)}
                         />;
                     case 'manageTemplates':
                         return <TemplateManagement 
@@ -1190,7 +1270,6 @@
                 });
             };
 
-            
             const handleSaveClick = () => {
                 // Validate table name
                 if (!tableName.trim()) {
@@ -1206,6 +1285,24 @@
                 
                 onSave(tableName, selectedColumns, columnTypes);
             };
+
+            // เพิ่มฟังก์ชัน getSortedTemplates ลงในคอมโพเนนต์ SheetConfiguration
+            const getSortedTemplates = () => {
+                return Object.keys(templates).map(templateName => {
+                    const template = templates[templateName];
+                    
+                    // หา timestamp ล่าสุดจากทุก sheet ในเทมเพลต
+                    const timestamps = Object.values(template).map(t => t.timestamp || new Date(0));
+                    const latestTimestamp = new Date(Math.max(...timestamps.map(t => new Date(t))));
+                    
+                    return {
+                        name: templateName,
+                        template: template,
+                        timestamp: latestTimestamp
+                    };
+                }).sort((a, b) => b.timestamp - a.timestamp); // เรียงจากใหม่ไปเก่า
+            };
+
             
             return (
                 <div>
@@ -1505,7 +1602,7 @@
                                                             Template Name
                                                         </th>
                                                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Sheet Name
+                                                            Template Sheet
                                                         </th>
                                                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                             Table Name
@@ -1525,10 +1622,14 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody className="bg-white divide-y divide-gray-200">
-                                                    {Object.keys(templates).map(templateName => (
-                                                        Object.keys(templates[templateName]).map(templateSheetName => {
+                                                    {getSortedTemplates().map(item => {
+                                                        const templateName = item.name;
+                                                        const timestamp = item.timestamp;
+                                                        
+                                                        return Object.keys(templates[templateName]).map(templateSheetName => {
                                                             const template = templates[templateName][templateSheetName];
-                                                            const date = new Date(template.timestamp);
+                                                            const date = template.timestamp ? new Date(template.timestamp) : timestamp;
+                                                            
                                                             return (
                                                                 <tr key={`${templateName}-${templateSheetName}`} className="hover:bg-gray-50">
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -1554,6 +1655,7 @@
                                                                         <button 
                                                                             className="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                                                                             onClick={() => {
+                                                                                // ส่งชื่อเทมเพลตและชื่อชีตในเทมเพลต แต่จะใช้กับชีตปัจจุบัน
                                                                                 onLoadTemplate(templateName, templateSheetName);
                                                                                 setShowTemplates(false);
                                                                             }}
@@ -1563,8 +1665,8 @@
                                                                     </td>
                                                                 </tr>
                                                             );
-                                                        })
-                                                    ))}
+                                                        });
+                                                    })}
                                                 </tbody>
                                             </table>
                                         </div>
@@ -1585,8 +1687,27 @@
             );
         };
         
-        // Template management component
+        // แก้ไขฟังก์ชัน TemplateManagement component เพื่อเรียงลำดับเทมเพลตจากใหม่ไปเก่า
         const TemplateManagement = ({ templates, onDelete, onClearAll, onClose }) => {
+            // เรียงลำดับเทมเพลตจากใหม่ไปเก่าโดยใช้ timestamp
+            const getSortedTemplates = () => {
+                return Object.keys(templates).map(templateName => {
+                    const template = templates[templateName];
+                    
+                    // หา timestamp ล่าสุดจากทุก sheet ในเทมเพลต
+                    const timestamps = Object.values(template).map(t => t.timestamp);
+                    const latestTimestamp = new Date(Math.max(...timestamps.map(t => new Date(t))));
+                    
+                    return {
+                        name: templateName,
+                        template: template,
+                        timestamp: latestTimestamp
+                    };
+                }).sort((a, b) => b.timestamp - a.timestamp); // เรียงจากใหม่ไปเก่า
+            };
+            
+            const sortedTemplates = getSortedTemplates();
+            
             return (
                 <div className="bg-white rounded-lg shadow-md p-6 mb-6">
                     <h2 className="text-xl font-semibold mb-4">Template Management</h2>
@@ -1622,14 +1743,12 @@
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
-                                        {Object.keys(templates).map(templateName => {
-                                            const template = templates[templateName];
+                                        {sortedTemplates.map(item => {
+                                            const templateName = item.name;
+                                            const template = item.template;
+                                            const timestamp = item.timestamp;
                                             const sheetCount = Object.keys(template).length;
                                             const fileName = Object.values(template)[0]?.fileName || 'Unknown';
-                                            
-                                            // Find most recent timestamp
-                                            const timestamps = Object.values(template).map(t => t.timestamp);
-                                            const latestTimestamp = new Date(Math.max(...timestamps.map(t => new Date(t))));
                                             
                                             return (
                                                 <tr key={templateName} className="hover:bg-gray-50">
@@ -1643,7 +1762,7 @@
                                                         {sheetCount}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        {latestTimestamp.toLocaleString()}
+                                                        {timestamp.toLocaleString()}
                                                     </td>
                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
                                                         <button 
