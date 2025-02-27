@@ -613,12 +613,20 @@
                 reader.readAsArrayBuffer(excelFile);
             };
 
-            const deleteTemplate = (templateName) => {
-                if (confirm(`Are you sure you want to delete template "${templateName}"?`)) {
+            // Modified deleteTemplate function in App component
+            const deleteTemplate = (templateName, updatedTemplates = null) => {
+                // If updatedTemplates is provided (from sheet deletion)
+                if (updatedTemplates) {
+                    setTemplates(updatedTemplates);
+                    return;
+                }
+                
+                // Normal case - delete entire template
+                if (window.confirm(`Are you sure you want to delete template "${templateName}"?`)) {
                     const updatedTemplates = { ...templates };
                     delete updatedTemplates[templateName];
                     setTemplates(updatedTemplates);
-                    alert(`Template "${templateName}" deleted successfully`);
+                    alert(`Template "${templateName}" has been deleted.`);
                 }
             };
             
@@ -702,13 +710,13 @@
                             onSaveTemplate={(templateName) => saveTemplate(selectedSheetName, templateName)}
                             onLoadTemplate={(templateName, templateSheetName) => loadTemplate(templateName, templateSheetName)}
                         />;
-                    case 'manageTemplates':
-                        return <TemplateManagement 
-                            templates={templates}
-                            onDelete={deleteTemplate}
-                            onClearAll={clearAllTemplates}
-                            onClose={() => setCurrentView('main')}
-                        />;
+                        case 'manageTemplates':
+                            return <TemplateManagement 
+                                templates={templates}
+                                onClearAll={clearAllTemplates}
+                                onClose={() => setCurrentView('main')}
+                                setTemplates={setTemplates} // เพิ่มบรรทัดนี้
+                            />;
                     default:
                         return <MainView 
                             excelFile={excelFile}
@@ -1687,15 +1695,47 @@
             );
         };
         
-        // แก้ไขฟังก์ชัน TemplateManagement component เพื่อเรียงลำดับเทมเพลตจากใหม่ไปเก่า
-        const TemplateManagement = ({ templates, onDelete, onClearAll, onClose }) => {
-            // เรียงลำดับเทมเพลตจากใหม่ไปเก่าโดยใช้ timestamp
+        // Fix Template Management component with visible Delete Sheet button
+        const TemplateManagement = ({ templates, onClearAll, onClose, setTemplates }) => {
+            // Function to delete specific sheet from template
+            const deleteTemplateSheet = (templateName, sheetName) => {
+                if (window.confirm(`Are you sure you want to delete sheet "${sheetName}" from template "${templateName}"?`)) {
+                    // Create a new template by copying the original
+                    const updatedTemplate = { ...templates[templateName] };
+                    
+                    // Delete the specified sheet
+                    delete updatedTemplate[sheetName];
+                    
+                    // Check if there are any sheets left in the template
+                    if (Object.keys(updatedTemplate).length === 0) {
+                        // If no sheets left, delete the entire template
+                        const newTemplates = { ...templates };
+                        delete newTemplates[templateName];
+                        
+                        // Update templates state
+                        setTemplates(newTemplates);
+                        alert(`Template "${templateName}" has been deleted as no sheets remain.`);
+                    } else {
+                        // If sheets still remain, update the template
+                        const updatedTemplates = {
+                            ...templates,
+                            [templateName]: updatedTemplate
+                        };
+                        
+                        // Update templates state
+                        setTemplates(updatedTemplates);
+                        alert(`Sheet "${sheetName}" has been deleted from template "${templateName}".`);
+                    }
+                }
+            };
+            
+            // Sort templates from newest to oldest
             const getSortedTemplates = () => {
                 return Object.keys(templates).map(templateName => {
                     const template = templates[templateName];
                     
-                    // หา timestamp ล่าสุดจากทุก sheet ในเทมเพลต
-                    const timestamps = Object.values(template).map(t => t.timestamp);
+                    // Find the most recent timestamp from all sheets in the template
+                    const timestamps = Object.values(template).map(t => t.timestamp || new Date(0));
                     const latestTimestamp = new Date(Math.max(...timestamps.map(t => new Date(t))));
                     
                     return {
@@ -1703,7 +1743,7 @@
                         template: template,
                         timestamp: latestTimestamp
                     };
-                }).sort((a, b) => b.timestamp - a.timestamp); // เรียงจากใหม่ไปเก่า
+                }).sort((a, b) => b.timestamp - a.timestamp); // Sort from newest to oldest
             };
             
             const sortedTemplates = getSortedTemplates();
@@ -1729,10 +1769,16 @@
                                                 Template Name
                                             </th>
                                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                File Name
+                                                Sheet Name
                                             </th>
                                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Sheets
+                                                Table Name
+                                            </th>
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Columns
+                                            </th>
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Header Row
                                             </th>
                                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                 Date Created
@@ -1746,42 +1792,54 @@
                                         {sortedTemplates.map(item => {
                                             const templateName = item.name;
                                             const template = item.template;
-                                            const timestamp = item.timestamp;
-                                            const sheetCount = Object.keys(template).length;
-                                            const fileName = Object.values(template)[0]?.fileName || 'Unknown';
                                             
-                                            return (
-                                                <tr key={templateName} className="hover:bg-gray-50">
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        {templateName}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        {fileName}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        {sheetCount}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        {timestamp.toLocaleString()}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
-                                                        <button 
-                                                            className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                                                            onClick={() => onDelete(templateName)}
-                                                        >
-                                                            Delete
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            );
+                                            // Display data separated by sheet
+                                            return Object.keys(template).map(sheetName => {
+                                                const sheetData = template[sheetName];
+                                                const date = new Date(sheetData.timestamp || item.timestamp);
+                                                
+                                                return (
+                                                    <tr key={`${templateName}-${sheetName}`} className="hover:bg-gray-50">
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                            {templateName}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            {sheetName}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            {sheetData.tableName || "-"}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            {sheetData.selectedColumns && sheetData.selectedColumns.length > 0 ? 
+                                                                `${sheetData.selectedColumns.slice(0, 3).join(", ")}${sheetData.selectedColumns.length > 3 ? "..." : ""}` : 
+                                                                "-"}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            {sheetData.headerRow || 1}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            {date.toLocaleString()}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                                                            <button 
+                                                                className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+                                                                onClick={() => deleteTemplateSheet(templateName, sheetName)}
+                                                                title="Delete this sheet from template"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            });
                                         })}
                                     </tbody>
                                 </table>
                             </div>
                             
-                            <div className="mt-6 flex justify-end">
+                            <div className="mt-6 flex justify-between">
                                 <button 
-                                    className="btn-danger mr-4"
+                                    className="btn-danger"
                                     onClick={onClearAll}
                                 >
                                     Clear All Templates
