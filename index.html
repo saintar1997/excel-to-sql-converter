@@ -392,9 +392,10 @@
                     selectedColumns: [...templateData.selectedColumns]
                 };
                 
-                // If header row is different, reload the data
-                if (templateData.headerRow !== sheetsData[sheetName].headerRow) {
-                    changeHeaderRow(sheetName, templateData.headerRow);
+                // If header row is different or specified in template, reload the data
+                const templateHeaderRow = templateData.headerRow || 1;
+                if (templateHeaderRow !== sheetsData[sheetName].headerRow) {
+                    changeHeaderRow(sheetName, templateHeaderRow);
                 } else {
                     // Just update the sheet data
                     setSheetsData({
@@ -403,7 +404,7 @@
                     });
                 }
                 
-                alert(`Template "${templateName}" applied successfully`);
+                alert(`Template "${templateName}" applied successfully with header row ${templateHeaderRow}`);
             };
             
             const deleteTemplate = (templateName) => {
@@ -1171,7 +1172,23 @@
                                     </ul>
                                 </div>
                                 
-                                <div className="mt-2 flex justify-end">
+                                <div className="mt-2 flex justify-between">
+                                    <div>
+                                        <label className="text-sm text-gray-500 mr-2">Header Row:</label>
+                                        <input 
+                                            type="number"
+                                            min="1"
+                                            className="w-16 px-2 py-1 text-sm border border-gray-300 rounded"
+                                            value={headerRow}
+                                            onChange={(e) => setHeaderRow(parseInt(e.target.value) || 1)}
+                                        />
+                                        <button 
+                                            className="ml-1 px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                                            onClick={handleHeaderRowChange}
+                                        >
+                                            Update
+                                        </button>
+                                    </div>
                                     <button 
                                         className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
                                         onClick={moveAllToAvailable}
@@ -1274,6 +1291,9 @@
                                                             Columns
                                                         </th>
                                                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                            Header Row
+                                                        </th>
+                                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                             Date Created
                                                         </th>
                                                         <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1298,7 +1318,11 @@
                                                                         {template.tableName}
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                                        {template.selectedColumns.length}
+                                                                        {template.selectedColumns.slice(0, 3).join(", ")}
+                                                                        {template.selectedColumns.length > 3 ? "..." : ""}
+                                                                    </td>
+                                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                        {template.headerRow || 1}
                                                                     </td>
                                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                                         {date.toLocaleString()}
