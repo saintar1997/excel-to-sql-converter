@@ -438,6 +438,15 @@
                 const templateSelectedColumns = templateData.selectedColumns || [];
                 const templateHeaderRow = templateData.headerRow || 1;
                 
+                // Force UI update for table name - must happen first to be visible
+                if (currentView === 'configureSheet' && selectedSheetName === sheetName) {
+                    // If we're in the configuration view for this sheet, update the form field directly
+                    const tableNameInput = document.querySelector('input[placeholder="Enter SQL table name"]');
+                    if (tableNameInput) {
+                        tableNameInput.value = templateTableName;
+                    }
+                }
+                
                 // If header row is different or specified in template, reload the data
                 if (templateHeaderRow !== sheetsData[sheetName].headerRow) {
                     // Change header row but preserve columns and types from template
@@ -449,19 +458,16 @@
                         templateColumnTypes
                     );
                     
-                    // Since changeHeaderRow is async, we need to update the table name separately
-                    // after a slight delay to ensure the sheet data is updated first
-                    setTimeout(() => {
-                        setSheetsData(prevData => ({
-                            ...prevData,
-                            [sheetName]: {
-                                ...prevData[sheetName],
-                                tableName: templateTableName
-                            }
-                        }));
-                    }, 500);
+                    // Update the state with the template's table name
+                    setSheetsData(prevData => ({
+                        ...prevData,
+                        [sheetName]: {
+                            ...prevData[sheetName],
+                            tableName: templateTableName
+                        }
+                    }));
                 } else {
-                    // Just update the sheet data with all template values
+                    // Just update the sheet data with all template values including table name
                     setSheetsData({
                         ...sheetsData,
                         [sheetName]: {
@@ -469,7 +475,7 @@
                             tableName: templateTableName,
                             columnTypes: { ...templateColumnTypes },
                             selectedColumns: [...templateSelectedColumns],
-                            headerRow: templateHeaderRow // Make sure headerRow is explicitly updated
+                            headerRow: templateHeaderRow
                         }
                     });
                 }
@@ -938,7 +944,6 @@
             const [availableColumns, setAvailableColumns] = React.useState([]);
             const [selectedColumns, setSelectedColumns] = React.useState([]);
             const [columnTypes, setColumnTypes] = React.useState({});
-            const [columnsWithData, setColumnsWithData] = React.useState({});
             const [dragItem, setDragItem] = React.useState(null);
             const [showTemplates, setShowTemplates] = React.useState(false);
             
@@ -962,41 +967,36 @@
                 setColumnTypes(savedTypes);
             }, [sheetData]);
             
-            // Filter columns to only show those with data
+            // Filter available columns to only show those with actual data
             React.useEffect(() => {
                 if (sheetData.data && sheetData.data.length > 0) {
-                    // Get all header indexes
+                    // Get all headers from the sheet
                     const headers = [...sheetData.headers];
                     
-                    // Track which columns have data
-                    const columnsWithDataMap = {};
+                    // Check which columns actually have data
+                    const columnsWithData = {};
                     
-                    // Check all rows (or limit to 10 for performance)
-                    const rowsToCheck = Math.min(10, sheetData.data.length);
-                    
-                    for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
-                        const row = sheetData.data[rowIdx];
-                        if (!row) continue;
+                    // Examine all data rows
+                    sheetData.data.forEach(row => {
+                        if (!row) return;
                         
                         headers.forEach((header, colIdx) => {
+                            // If this column has any non-empty data, mark it
                             if (row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '') {
-                                columnsWithDataMap[header] = true;
+                                columnsWithData[header] = true;
                             }
                         });
-                    }
+                    });
                     
-                    setColumnsWithData(columnsWithDataMap);
-                    
-                    // Update available columns list to only include those with data
-                    // but preserve the selection status (selected stays selected)
+                    // Filter to show only columns with data that aren't already selected
                     const selectedSet = new Set(selectedColumns);
                     const availableCols = headers.filter(col => 
-                        !selectedSet.has(col) && columnsWithDataMap[col]
+                        !selectedSet.has(col) && columnsWithData[col]
                     );
                     
                     setAvailableColumns(availableCols);
                 }
-            }, [sheetData.data, selectedColumns]);
+            }, [sheetData.data, sheetData.headers, selectedColumns]);
             
             const handleHeaderRowChange = () => {
                 if (headerRow < 1) {
@@ -1337,19 +1337,14 @@
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
-                                    {/* Filter headers to only show columns with data or selected columns */}
                                     {sheetData.headers.map((header, idx) => (
-                                        (columnsWithData[header] || selectedColumns.includes(header)) && (
-                                            <th 
-                                                key={idx}
-                                                scope="col" 
-                                                className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${
-                                                    selectedColumns.includes(header) ? 'bg-indigo-50' : ''
-                                                }`}
-                                            >
-                                                {header}
-                                            </th>
-                                        )
+                                        <th 
+                                            key={idx}
+                                            scope="col" 
+                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                        >
+                                            {header}
+                                        </th>
                                     ))}
                                 </tr>
                             </thead>
@@ -1357,16 +1352,14 @@
                                 {sheetData.data.slice(0, 5).map((row, rowIdx) => (
                                     <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                         {sheetData.headers.map((header, colIdx) => (
-                                            (columnsWithData[header] || selectedColumns.includes(header)) && (
-                                                <td 
-                                                    key={colIdx}
-                                                    className={`px-6 py-4 whitespace-nowrap text-sm text-gray-500 ${
-                                                        selectedColumns.includes(header) ? 'bg-indigo-50 font-medium' : ''
-                                                    }`}
-                                                >
-                                                    {row[colIdx] !== undefined ? String(row[colIdx]) : ''}
-                                                </td>
-                                            )
+                                            <td 
+                                                key={colIdx}
+                                                className={`px-6 py-4 whitespace-nowrap text-sm text-gray-500 ${
+                                                    selectedColumns.includes(header) ? 'bg-indigo-50 font-medium' : ''
+                                                }`}
+                                            >
+                                                {row[colIdx] !== undefined ? String(row[colIdx]) : ''}
+                                            </td>
                                         ))}
                                     </tr>
                                 ))}
