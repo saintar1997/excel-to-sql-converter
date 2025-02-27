@@ -961,39 +961,19 @@
                 setColumnTypes(savedTypes);
             }, [sheetData]);
             
-            // Filter columns to only show those with data
+            // Update available columns to match exactly what's in the headers
             React.useEffect(() => {
-                if (sheetData.data && sheetData.data.length > 0) {
-                    // Get all header indexes
+                if (sheetData.headers) {
+                    // Get all headers from the sheet
                     const headers = [...sheetData.headers];
                     
-                    // Track which columns have data
-                    const columnsWithData = {};
-                    
-                    // Check first 5 rows (or less if there are fewer rows)
-                    const rowsToCheck = Math.min(5, sheetData.data.length);
-                    
-                    for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
-                        const row = sheetData.data[rowIdx];
-                        if (!row) continue;
-                        
-                        headers.forEach((header, colIdx) => {
-                            if (row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '') {
-                                columnsWithData[header] = true;
-                            }
-                        });
-                    }
-                    
-                    // Update available columns list to only include those with data
-                    // but preserve the selection status (selected stays selected)
+                    // Filter out headers that are already selected
                     const selectedSet = new Set(selectedColumns);
-                    const availableCols = headers.filter(col => 
-                        !selectedSet.has(col) && columnsWithData[col]
-                    );
+                    const availableCols = headers.filter(col => !selectedSet.has(col));
                     
                     setAvailableColumns(availableCols);
                 }
-            }, [sheetData.data, selectedColumns]);
+            }, [sheetData.headers, selectedColumns]);
             
             const handleHeaderRowChange = () => {
                 if (headerRow < 1) {
