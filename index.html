@@ -144,23 +144,45 @@
                         
                         const tempSheetsData = {};
                         
+                        // ฟังก์ชันแปลง Index เป็นชื่อคอลัมน์ เช่น 0 → A, 1 → B, 26 → AA
+                        const getColumnName = (index) => {
+                            let columnName = '';
+                            while (index >= 0) {
+                                columnName = String.fromCharCode((index % 26) + 65) + columnName;
+                                index = Math.floor(index / 26) - 1;
+                            }
+                            return columnName;
+                        };
+
                         // Process each sheet
                         workbook.SheetNames.forEach(sheetName => {
                             const worksheet = workbook.Sheets[sheetName];
                             const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                             
+                            // ดึงช่วงคอลัมน์จาก !ref เช่น A1:D10
+                            const range = XLSX.utils.decode_range(worksheet['!ref']);
+                            const startCol = range.s.c; // เริ่มที่คอลัมน์ไหน (Index)
+                            const endCol = range.e.c;   // สิ้นสุดที่คอลัมน์ไหน (Index)
+
+                            // สร้าง columnNames ที่มีชื่อคอลัมน์จริง เช่น A, B, C
+                            const columnNames = [];
+                            for (let i = startCol; i <= endCol; i++) {
+                                columnNames.push(getColumnName(i));
+                            }
+
                             // Default header row is 0 (first row) in the array
                             const headerRow = 0;
                             const headers = json[headerRow];
                             const rows = json.slice(headerRow + 1);
                             
                             tempSheetsData[sheetName] = {
-                                headers: headers,
+                                columnNames: columnNames, // เก็บ A, B, C ไว้ต่างหาก
+                                headers: headers,         // เก็บชื่อจริงเช่น Name, Age
                                 data: rows,
                                 rowCount: rows.length,
                                 tableName: '',
                                 columnTypes: {},
-                                selectedColumns: [],  // New field to store selected columns in order
+                                selectedColumns: [],
                                 headerRow: headerRow + 1, // Convert to 1-based for UI
                             };
                         });
@@ -182,7 +204,7 @@
                 
                 reader.readAsArrayBuffer(file);
             };
-            
+
             const configureSheet = (sheetName) => {
                 setSelectedSheetName(sheetName);
                 setCurrentView('configureSheet');
@@ -216,18 +238,20 @@
                         
                         // Determine whether to keep or reset columns
                         let selectedColumns = [];
-                        let columnTypes = {};
+                        let columnTypes = {}; // Initialize as empty object, not undefined
                         
                         if (preserveColumns && columnsToPreserve && typesToPreserve) {
                             // Check if preserved columns still exist in the new headers
                             selectedColumns = columnsToPreserve.filter(col => headers.includes(col));
                             
                             // Only keep types for columns that still exist
-                            Object.keys(typesToPreserve).forEach(col => {
-                                if (headers.includes(col)) {
-                                    columnTypes[col] = typesToPreserve[col];
-                                }
-                            });
+                            if (typesToPreserve && typeof typesToPreserve === 'object') {
+                                Object.keys(typesToPreserve).forEach(col => {
+                                    if (headers.includes(col)) {
+                                        columnTypes[col] = typesToPreserve[col];
+                                    }
+                                });
+                            }
                         }
                         
                         // Create updated sheet data
@@ -240,7 +264,7 @@
                                 rowCount: rows.length,
                                 headerRow: newHeaderRow,
                                 selectedColumns: selectedColumns,
-                                columnTypes: columnTypes,
+                                columnTypes: columnTypes, // Ensure this is always an object
                             }
                         };
                         
@@ -255,7 +279,7 @@
                 
                 reader.readAsArrayBuffer(excelFile);
             };
-            
+
             const generateSqlStatements = (sheetName, rowLimit = null) => {
                 const sheetData = sheetsData[sheetName];
                 const tableName = sheetData.tableName;
@@ -264,7 +288,7 @@
                 
                 const data = sheetData.data;
                 const selectedColumns = sheetData.selectedColumns;
-                const columnTypes = sheetData.columnTypes;
+                const columnTypes = sheetData.columnTypes || {}; // ให้แน่ใจว่าเป็น object เสมอ
                 
                 if (!selectedColumns.length) return [];
                 
@@ -288,10 +312,10 @@
                         
                         const cellValue = row[headerIndex];
                         
-                        // Handle different data types
+                        // เปลี่ยนเงื่อนไขให้ค่าเริ่มต้นเป็น text ยกเว้นเมื่อระบุเป็น int
                         if (cellValue === undefined || cellValue === null) {
                             values.push("NULL");
-                        } else if (columnTypes[column]?.toLowerCase() === "text") {
+                        } else if (columnTypes[column]?.toLowerCase() !== "int") { // ค่าเริ่มต้นเป็น text
                             // Escape single quotes for SQL
                             const strValue = String(cellValue).replace(/'/g, "''");
                             values.push(`LTRIM(RTRIM(N'${strValue}'))`);
@@ -319,6 +343,8 @@
             };
             
             const previewSql = (sheetName) => {
+                const sheetData = sheetsData[sheetName];
+                
                 // Generate all SQL statements (no row limit)
                 const sqlStatements = generateSqlStatements(sheetName); 
                 if (sqlStatements.length === 0) {
@@ -354,6 +380,10 @@
             
             const generateExcelFormula = (sheetName) => {
                 const sheetData = sheetsData[sheetName];
+
+                // ตรวจสอบค่า columnTypes และแสดงเพื่อการดีบั๊ก
+                console.log("Sheet Data:", sheetData);
+                console.log("Column Types:", sheetData.columnTypes || {});
                 
                 const tableName = sheetData.tableName;
                 if (!tableName) {
@@ -377,23 +407,26 @@
                 for (let i = 0; i < selectedColumns.length; i++) {
                     const col = selectedColumns[i];
                     const colIdx = headers.indexOf(col);
-                    const colLetter = String.fromCharCode(65 + colIdx);
-                    
+                    const colLetter = sheetData.columnNames[colIdx]; // ใช้ columnNames แทน String.fromCharCode()
+
                     if (sheetData.columnTypes[col]?.toLowerCase() === "text") {
-                        formulaParts.push(`\"&LTRIM(RTRIM(N'\"&${colLetter}${dataRow}&\"'))&\"`);
+                        // ใช้ LTRIM RTRIM สำหรับ Text โดยให้ & อยู่ข้างนอกเสมอ
+                        formulaParts.push(`LTRIM(RTRIM(N'"&${colLetter}${dataRow}&"'))`);
                     } else {
-                        formulaParts.push(`\"&${colLetter}${dataRow}&\"`);
+                        // สำหรับ Number ก็ใช้ & ข้างนอกเช่นกัน เพื่อให้ Excel อ่านเป็นสูตร
+                        formulaParts.push(`"&${colLetter}${dataRow}&"`);
                     }
                 }
                 
-                // Create the formula
-                const excelFormula = `="INSERT INTO ${tableName} VALUES("&${formulaParts.join('&","&')}&")"`;
+                // เชื่อม formulaParts ด้วย & อย่างถูกต้อง โดยไม่มี " ตรงกลาง
+                const joinedParts = formulaParts.join(',');
+                const excelFormula = `="INSERT INTO ${tableName} VALUES(${joinedParts})"`;
                 
                 // Display formula in modal
                 document.getElementById('formulaText').textContent = excelFormula;
                 document.getElementById('formulaModal').classList.remove('hidden');
             };
-            
+
             const saveTemplate = (sheetName, templateName) => {
                 const sheetData = sheetsData[sheetName];
                 
@@ -423,59 +456,83 @@
                 
                 alert(`Template "${templateName}" saved successfully`);
             };
-            
+
+            const updateTableName = (sheetName, newTableName) => {
+                setSheetsData(prevData => ({
+                    ...prevData,
+                    [sheetName]: {
+                        ...prevData[sheetName],
+                        tableName: newTableName
+                    }
+                }));
+            };
+
             const loadTemplate = (templateName, sheetName) => {
                 if (!templates[templateName] || !templates[templateName][sheetName]) {
                     alert("Template not found");
                     return;
                 }
-                
+
                 const templateData = templates[templateName][sheetName];
-                
-                // Get template values
-                const templateTableName = templateData.tableName || '';
-                const templateColumnTypes = templateData.columnTypes || {};
-                const templateSelectedColumns = templateData.selectedColumns || [];
+
+                // Get template values with robust default handling
+                const templateTableName = templateData.tableName || `${sheetName}_table`;
+                const templateColumnTypes = { ...templateData.columnTypes } || {}; // Ensure it's an object
+                const templateSelectedColumns = [...(templateData.selectedColumns || [])];
                 const templateHeaderRow = templateData.headerRow || 1;
-                
-                // Create a function to update the sheet data comprehensively
-                const updateSheetData = (prevData) => {
-                    const updatedSheetData = {
-                        ...prevData[sheetName],
-                        tableName: templateTableName,
-                        columnTypes: { ...templateColumnTypes },
-                        selectedColumns: [...templateSelectedColumns],
-                        headerRow: templateHeaderRow
-                    };
-                    
-                    return {
-                        ...prevData,
-                        [sheetName]: updatedSheetData
-                    };
-                };
-                
-                // If header row is different, reload the data
+
+                // If header row is different, change it first
                 if (templateHeaderRow !== sheetsData[sheetName].headerRow) {
-                    changeHeaderRow(
-                        sheetName, 
-                        templateHeaderRow, 
-                        true,
-                        templateSelectedColumns,
-                        templateColumnTypes
-                    );
+                    // Trigger header row change with a Promise
+                    const changeHeaderRowPromise = new Promise((resolve) => {
+                        changeHeaderRow(
+                            sheetName, 
+                            templateHeaderRow, 
+                            true,  // Preserve columns
+                            templateSelectedColumns,
+                            templateColumnTypes
+                        );
+                        // ใช้ setTimeout เพื่อหน่วงเวลาเล็กน้อย (100 ms) แล้ว Resolve
+                        setTimeout(() => {
+                            resolve();
+                        }, 100);
+                    });
                     
-                    // Add a small delay to ensure sheet data is updated first
-                    setTimeout(() => {
-                        setSheetsData(prevData => updateSheetData(prevData));
-                    }, 500);
+                    // เมื่อการเปลี่ยน header row เสร็จสิ้น ให้อัปเดตค่าอื่นๆ
+                    changeHeaderRowPromise.then(() => {
+                        setSheetsData(prevData => ({
+                            ...prevData,
+                            [sheetName]: {
+                                ...prevData[sheetName],
+                                tableName: templateTableName,
+                                columnTypes: { ...templateColumnTypes },
+                                selectedColumns: templateSelectedColumns
+                                // ไม่ต้องอัปเดต headerRow อีกครั้งเพราะ changeHeaderRow ได้ทำแล้ว
+                            }
+                        }));
+                        
+                        // เรียกใช้ฟังก์ชันเฉพาะเพื่อให้แน่ใจว่า tableName ถูกอัปเดต
+                        updateTableName(sheetName, templateTableName);
+                    });
                 } else {
-                    // Directly update sheet data if header row is the same
-                    setSheetsData(prevData => updateSheetData(prevData));
+                    // If header row is the same, just update the configuration
+                    setSheetsData(prevData => ({
+                        ...prevData,
+                        [sheetName]: {
+                            ...prevData[sheetName],
+                            tableName: templateTableName,
+                            columnTypes: { ...templateColumnTypes },
+                            selectedColumns: templateSelectedColumns,
+                            headerRow: templateHeaderRow
+                        }
+                    }));
+                    
+                    // เรียกใช้ฟังก์ชันเฉพาะเพื่อให้แน่ใจว่า tableName ถูกอัปเดต
+                    updateTableName(sheetName, templateTableName);
                 }
-                
-                alert(`Template "${templateName}" applied successfully with header row ${templateHeaderRow}`);
             };
-            
+
+
             const deleteTemplate = (templateName) => {
                 if (confirm(`Are you sure you want to delete template "${templateName}"?`)) {
                     const updatedTemplates = { ...templates };
@@ -960,42 +1017,36 @@
                 setColumnTypes(savedTypes);
             }, [sheetData]);
             
-            // Filter columns to only show those with data based on Data Preview
             React.useEffect(() => {
                 if (sheetData.data && sheetData.data.length > 0) {
-                    // Get all header indexes
-                    const headers = [...sheetData.headers];
-                    
-                    // Track which columns have data
-                    const columnsWithData = {};
-                    
-                    // Check the exact rows shown in Data Preview (first 5 rows or fewer)
-                    const previewRows = sheetData.data.slice(0, 5);
-                    
-                    previewRows.forEach(row => {
-                        if (!row) return;
-                        
-                        headers.forEach((header, colIdx) => {
-                            const cellValue = row[colIdx];
-                            if (cellValue !== undefined && cellValue !== null && String(cellValue).trim() !== '') {
-                                columnsWithData[header] = true;
-                            }
-                        });
-                    });
-                    
-                    // Update available columns list to only include those with data in the preview
-                    // but preserve the selection status (selected stays selected)
-                    const selectedSet = new Set(selectedColumns);
-                    
-                    // Columns that have data in the preview and aren't already selected
-                    const availableCols = headers.filter(col => 
-                        !selectedSet.has(col) && columnsWithData[col]
+                    // ตรวจสอบว่าแต่ละคอลัมน์มีข้อมูลหรือไม่
+                    const columnsWithData = sheetData.headers
+                        .map((header, colIdx) => ({
+                            name: header,                            // ชื่อจริง เช่น Name, Age
+                            colIdx: colIdx,
+                            colName: sheetData.columnNames[colIdx]    // ชื่อคอลัมน์จริง เช่น A, B, C
+                        }))
+                        .filter(col => 
+                            sheetData.data.some(row => {
+                                const cellValue = row[col.colIdx];
+                                return cellValue !== undefined && cellValue !== null && String(cellValue).trim() !== '';
+                            })
+                        );
+
+                    // กรองคอลัมน์ที่ถูกเลือกออกไป
+                    const availableCols = columnsWithData.filter(col => 
+                        !sheetData.selectedColumns.includes(col.name)
                     );
-                    
+
                     setAvailableColumns(availableCols);
+                } else {
+                    // ถ้าไม่มีข้อมูล ให้เคลียร์ availableColumns
+                    setAvailableColumns([]);
                 }
-            }, [sheetData.data, selectedColumns]);
-            
+            }, [sheetData]);
+
+
+
             const handleHeaderRowChange = () => {
                 if (headerRow < 1) {
                     alert("Header row must be at least 1");
@@ -1005,50 +1056,87 @@
                 onHeaderRowChange(headerRow);
             };
             
-            const moveToSelected = (column) => {
-                // Don't add duplicates
-                if (selectedColumns.includes(column)) return;
+            const moveToSelected = (columnName) => {
+                setAvailableColumns(prevAvailable => 
+                    prevAvailable.filter(col => col.name !== columnName)
+                );
                 
-                setAvailableColumns(availableColumns.filter(col => col !== column));
-                setSelectedColumns([...selectedColumns, column]);
+                setSelectedColumns(prevSelected => 
+                    [...prevSelected, columnName]
+                );
                 
-                // Set default type if not already set
-                if (!columnTypes[column]) {
-                    setColumnTypes({
-                        ...columnTypes,
-                        [column]: 'text'
-                    });
+                // Initialize new column with default type of "text"
+                setColumnTypes(prevTypes => ({
+                    ...prevTypes,
+                    [columnName]: prevTypes[columnName] || "text" // Default to text
+                }));
+            };
+
+
+            // ฟังก์ชันแปลง Index เป็นชื่อคอลัมน์ เช่น 0 → A, 1 → B, 26 → AA
+            const getColumnName = (index) => {
+                let columnName = '';
+                while (index >= 0) {
+                    columnName = String.fromCharCode((index % 26) + 65) + columnName;
+                    index = Math.floor(index / 26) - 1;
                 }
+                return columnName;
             };
             
-            const moveToAvailable = (column) => {
-                setSelectedColumns(selectedColumns.filter(col => col !== column));
-                setAvailableColumns([...availableColumns, column]);
+            const moveToAvailable = (columnName) => {
+                // หา colIdx จาก headers เพื่อใช้ map กลับไปเป็น colName
+                const colIdx = sheetData.headers.indexOf(columnName);
+                const colName = sheetData.columnNames[colIdx];
+
+                setSelectedColumns(prevSelected => 
+                    prevSelected.filter(col => col !== columnName)
+                );
+
+                setAvailableColumns(prevAvailable => 
+                    [...prevAvailable, { name: columnName, colIdx: colIdx, colName: colName }]
+                );
             };
-            
+
+            // แก้ไขฟังก์ชัน moveAllToSelected เพื่อตั้งค่า columnTypes สำหรับทุกคอลัมน์
             const moveAllToSelected = () => {
-                // Add all available columns to selected
-                setSelectedColumns([...selectedColumns, ...availableColumns]);
-                
-                // Set default types for new columns
-                const newTypes = { ...columnTypes };
-                availableColumns.forEach(col => {
-                    if (!newTypes[col]) {
-                        newTypes[col] = 'text';
-                    }
+                // ดึงเฉพาะชื่อ (name) ของทุกคอลัมน์ใน availableColumns
+                const allAvailable = availableColumns.map(col => col.name);
+
+                // อัปเดต selectedColumns ก่อน
+                setSelectedColumns(prevSelected => [...prevSelected, ...allAvailable]);
+
+                // ตั้งค่า columnTypes สำหรับคอลัมน์ทั้งหมดที่เพิ่มเข้ามา
+                setColumnTypes(prevTypes => {
+                    const newTypes = { ...prevTypes };
+                    
+                    // ตั้งค่า default type เป็น "text" สำหรับทุกคอลัมน์ใหม่
+                    allAvailable.forEach(colName => {
+                        // ตั้งค่าเฉพาะคอลัมน์ที่ยังไม่มี type กำหนดไว้
+                        if (!newTypes[colName]) {
+                            newTypes[colName] = "text";
+                        }
+                    });
+                    
+                    return newTypes;
                 });
-                setColumnTypes(newTypes);
-                
-                // Clear available columns
+
+                // แล้วค่อยเคลียร์ availableColumns
                 setAvailableColumns([]);
             };
-            
+
             const moveAllToAvailable = () => {
-                // Move all selected back to available
-                setAvailableColumns([...availableColumns, ...selectedColumns]);
+                // นำทุกคอลัมน์จาก selectedColumns กลับไปที่ availableColumns พร้อมรักษาโครงสร้าง
+                const allSelected = selectedColumns.map(columnName => {
+                    const colIdx = sheetData.headers.indexOf(columnName);
+                    const colName = sheetData.columnNames[colIdx];
+                    return { name: columnName, colIdx: colIdx, colName: colName };
+                });
+
+                // อัปเดต availableColumns ก่อน แล้วค่อยเคลียร์ selectedColumns
+                setAvailableColumns(prevAvailable => [...prevAvailable, ...allSelected]);
                 setSelectedColumns([]);
             };
-            
+
             const changeColumnType = (column, type) => {
                 setColumnTypes({
                     ...columnTypes,
@@ -1081,26 +1169,27 @@
             };
             
             const moveUp = (index) => {
-                if (index === 0) return;
-                
-                const newColumns = [...selectedColumns];
-                const temp = newColumns[index];
-                newColumns[index] = newColumns[index - 1];
-                newColumns[index - 1] = temp;
-                
-                setSelectedColumns(newColumns);
+                if (index === 0) return; // ถ้าอยู่บนสุดแล้ว หยุดการทำงาน
+
+                setSelectedColumns(prevSelected => {
+                    const newColumns = [...prevSelected];
+                    // Swap ตำแหน่งปัจจุบันกับตำแหน่งก่อนหน้า
+                    [newColumns[index], newColumns[index - 1]] = [newColumns[index - 1], newColumns[index]];
+                    return newColumns;
+                });
             };
-            
+
             const moveDown = (index) => {
-                if (index === selectedColumns.length - 1) return;
-                
-                const newColumns = [...selectedColumns];
-                const temp = newColumns[index];
-                newColumns[index] = newColumns[index + 1];
-                newColumns[index + 1] = temp;
-                
-                setSelectedColumns(newColumns);
+                if (index === selectedColumns.length - 1) return; // ถ้าอยู่ล่างสุดแล้ว หยุดการทำงาน
+
+                setSelectedColumns(prevSelected => {
+                    const newColumns = [...prevSelected];
+                    // Swap ตำแหน่งปัจจุบันกับตำแหน่งถัดไป
+                    [newColumns[index], newColumns[index + 1]] = [newColumns[index + 1], newColumns[index]];
+                    return newColumns;
+                });
             };
+
             
             const handleSaveClick = () => {
                 // Validate table name
@@ -1190,18 +1279,18 @@
                                 
                                 <div className="h-64 overflow-y-auto border border-gray-200 rounded-md">
                                     <ul className="divide-y divide-gray-200">
-                                        {availableColumns.map((column, index) => (
+                                        {availableColumns.map((column) => (
                                             <li 
-                                                key={`avail-${column}`}
+                                                key={`avail-${column.name}`}
                                                 className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center justify-between"
-                                                onDoubleClick={() => moveToSelected(column)}
+                                                onDoubleClick={() => moveToSelected(column.name)}
                                                 draggable
-                                                onDragStart={(e) => handleDragStart(e, column, 'available')}
+                                                onDragStart={(e) => handleDragStart(e, column.name, 'available')}
                                             >
-                                                <span className="text-sm">{column}</span>
+                                                <span className="text-sm">{column.colName}: {column.name}</span>
                                                 <button 
                                                     className="text-indigo-600 hover:text-indigo-800"
-                                                    onClick={() => moveToSelected(column)}
+                                                    onClick={() => moveToSelected(column.name)}
                                                 >
                                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -1209,6 +1298,7 @@
                                                 </button>
                                             </li>
                                         ))}
+
                                         {availableColumns.length === 0 && (
                                             <li className="px-3 py-4 text-center text-gray-500 italic">
                                                 All columns have been selected
@@ -1225,6 +1315,7 @@
                                     >
                                         Select All →
                                     </button>
+
                                 </div>
                             </div>
                             
@@ -1239,58 +1330,62 @@
                                 
                                 <div className="h-64 overflow-y-auto border border-gray-200 rounded-md">
                                     <ul className="divide-y divide-gray-200">
-                                        {selectedColumns.map((column, index) => (
-                                            <li 
-                                                key={`sel-${column}`}
-                                                className="px-3 py-2 hover:bg-gray-50 cursor-pointer"
-                                                draggable
-                                                onDragStart={(e) => handleDragStart(e, column, 'selected')}
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center">
-                                                        <span className="text-sm">{column}</span>
-                                                        <div className="ml-2 inline-block">
-                                                            <select 
-                                                                className="text-xs border border-gray-300 rounded px-1 py-0.5"
-                                                                value={columnTypes[column] || 'text'}
-                                                                onChange={(e) => changeColumnType(column, e.target.value)}
+                                        {selectedColumns.map((column, index) => {
+                                            const colIdx = sheetData.headers.indexOf(column);
+                                            return (
+                                                <li 
+                                                    key={`sel-${column}`}
+                                                    className="px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                                                    draggable
+                                                    onDragStart={(e) => handleDragStart(e, column, 'selected')}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center">
+                                                            <span className="text-sm">{sheetData.columnNames[colIdx]}: {column}</span>
+                                                            <div className="ml-2 inline-block">
+                                                                <select 
+                                                                    className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                                                                    value={columnTypes[column] || 'text'}
+                                                                    onChange={(e) => changeColumnType(column, e.target.value)}
+                                                                >
+                                                                    <option value="text">TEXT</option>
+                                                                    <option value="int">INT</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex space-x-1">
+                                                            <button 
+                                                                className="text-gray-400 hover:text-gray-600"
+                                                                onClick={() => moveUp(index)}
+                                                                disabled={index === 0} // ปิดปุ่มถ้าอยู่บนสุด
                                                             >
-                                                                <option value="text">TEXT</option>
-                                                                <option value="int">INT</option>
-                                                            </select>
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                                                </svg>
+                                                            </button>
+                                                            <button 
+                                                                className="text-gray-400 hover:text-gray-600"
+                                                                onClick={() => moveDown(index)}
+                                                                disabled={index === selectedColumns.length - 1} // ปิดปุ่มถ้าอยู่ล่างสุด
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                                </svg>
+                                                            </button>
+                                                            <button 
+                                                                className="text-red-400 hover:text-red-600"
+                                                                onClick={() => moveToAvailable(column)}
+                                                            >
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+                                                                </svg>
+                                                            </button>
                                                         </div>
                                                     </div>
-                                                    <div className="flex space-x-1">
-                                                        <button 
-                                                            className="text-gray-400 hover:text-gray-600"
-                                                            onClick={() => moveUp(index)}
-                                                            disabled={index === 0}
-                                                        >
-                                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                                                            </svg>
-                                                        </button>
-                                                        <button 
-                                                            className="text-gray-400 hover:text-gray-600"
-                                                            onClick={() => moveDown(index)}
-                                                            disabled={index === selectedColumns.length - 1}
-                                                        >
-                                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                            </svg>
-                                                        </button>
-                                                        <button 
-                                                            className="text-red-400 hover:text-red-600"
-                                                            onClick={() => moveToAvailable(column)}
-                                                        >
-                                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 17l-5-5m0 0l5-5m-5 5h12" />
-                                                            </svg>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </li>
-                                        ))}
+                                                </li>
+                                            );
+                                        })}
+
                                         {selectedColumns.length === 0 && (
                                             <li className="px-3 py-4 text-center text-gray-500 italic">
                                                 No columns selected
@@ -1323,6 +1418,7 @@
                                     >
                                         ← Remove All
                                     </button>
+
                                 </div>
                             </div>
                         </div>
