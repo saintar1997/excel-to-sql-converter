@@ -961,7 +961,7 @@
                 setColumnTypes(savedTypes);
             }, [sheetData]);
             
-            // Filter columns to only show those with data
+            // Filter columns to only show those with data based on Data Preview
             React.useEffect(() => {
                 if (sheetData.data && sheetData.data.length > 0) {
                     // Get all header indexes
@@ -970,23 +970,25 @@
                     // Track which columns have data
                     const columnsWithData = {};
                     
-                    // Check first 5 rows (or less if there are fewer rows)
-                    const rowsToCheck = Math.min(5, sheetData.data.length);
+                    // Check the exact rows shown in Data Preview (first 5 rows or fewer)
+                    const previewRows = sheetData.data.slice(0, 5);
                     
-                    for (let rowIdx = 0; rowIdx < rowsToCheck; rowIdx++) {
-                        const row = sheetData.data[rowIdx];
-                        if (!row) continue;
+                    previewRows.forEach(row => {
+                        if (!row) return;
                         
                         headers.forEach((header, colIdx) => {
-                            if (row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '') {
+                            const cellValue = row[colIdx];
+                            if (cellValue !== undefined && cellValue !== null && String(cellValue).trim() !== '') {
                                 columnsWithData[header] = true;
                             }
                         });
-                    }
+                    });
                     
-                    // Update available columns list to only include those with data
+                    // Update available columns list to only include those with data in the preview
                     // but preserve the selection status (selected stays selected)
                     const selectedSet = new Set(selectedColumns);
+                    
+                    // Columns that have data in the preview and aren't already selected
                     const availableCols = headers.filter(col => 
                         !selectedSet.has(col) && columnsWithData[col]
                     );
